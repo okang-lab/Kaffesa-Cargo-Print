@@ -11,7 +11,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
 
-st.set_page_config(page_title="Kaffesa Kargo Etiket Oluşturucu by okanLab", layout="wide")
+st.set_page_config(page_title="Kargo by okanLab", layout="wide")
 
 SENDER_BLOCK = (
     "KAFFESA GIDA SANAYİ VE DIŞ TİCARET ANONİM ŞİRKETİ"
@@ -128,7 +128,7 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short):
 """
     return "data:text/html;base64," + base64.b64encode(html_block.encode("utf-8")).decode("ascii")
 
-st.title("Kaffesa Kargo Etiket Oluşturucu By okanLab")
+st.title("Kaffesa Cargo Print")
 st.markdown(
     "- Solda alıcı satırlarını gir.\n"
     "- Sağda her alıcı için **kargo ücreti (ÜA/ÜG)** seç; ardından **tek sayfalık PDF indir** veya **tarayıcıdan yazdır**."

@@ -14,10 +14,10 @@ from reportlab.lib.units import mm
 st.set_page_config(page_title="Kaffesa Kargo Etiket Oluşturucu by okanLab", layout="wide")
 
 SENDER_BLOCK = (
-    "Kaffesa Ltd.\n"
-    "Adres: ... Mah., ... Sk. No: ...\n"
+    "KAFFESA GIDA SANAYİ VE DIŞ TİCARET ANONİM ŞİRKETİ"
+    "Adres:BALMUMCU MAH. BARBAROS BULVARI İBA BLOKLARI , 34\A"
     "İl/İlçe: İstanbul, Türkiye\n"
-    "Tel: +90 5xx xxx xx xx\n"
+    "Tel: ‭0 (212) 265 16 16‬"
 )
 
 def sanitize_filename(s: str) -> str:
@@ -128,7 +128,7 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short):
 """
     return "data:text/html;base64," + base64.b64encode(html_block.encode("utf-8")).decode("ascii")
 
-st.title("Kargo Etiket Oluşturucu")
+st.title("Kaffesa Kargo Etiket Oluşturucu By okanLab")
 st.markdown(
     "- Solda alıcı satırlarını gir.\n"
     "- Sağda her alıcı için **kargo ücreti (ÜA/ÜG)** seç; ardından **tek sayfalık PDF indir** veya **tarayıcıdan yazdır**."

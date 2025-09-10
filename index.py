@@ -409,7 +409,7 @@ with st.sidebar:
     raw = st.text_area(
         "Her satır bir alıcıyı temsil eder. Sütunları ; / , / TAB ile ayır.",
         height=220,
-        placeholder="Ör:\nAcme A.Ş.; 0532 000 00 00; Cumhuriyet Cad. No:12 Şişli İstanbul; ÜA; SIP12345; Aras\nBurcu Girer, 0505 111 22 33, ...; ÜG",
+        placeholder="Ör:\nFirma Alıcı A.Ş.; 0532 000 00 00; Cumhuriyet Cad. No:12 Şişli İstanbul; ÜA; SIP12345; Aras\nİsim Soyisim, 0505 111 22 33, ...; ÜG",
     )
     sep = st.radio("Ayraç", [",", ";", "TAB"], horizontal=True)
     sep_char = "\t" if sep == "TAB" else sep

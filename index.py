@@ -21,10 +21,10 @@ from reportlab.graphics import renderPDF
 st.set_page_config(page_title="Kargo Etiket Oluşturucu", layout="wide")
 
 SENDER_BLOCK_DEFAULT = (
-    "Kaffesa Ltd.\n"
-    "Adres: ... Mah., ... Sk. No: ...\n"
-    "İl/İlçe: İstanbul, Türkiye\n"
-    "Tel: +90 5xx xxx xx xx\n"
+    "KAFFESA GIDA SANAYİ VE DIŞ TİCARET ANONİM ŞİRKETİ\n"
+    "Adres:BALMUMCU MAH. BARBAROS BULVARI İBA BLOKLARI , 34\A\n"
+    "İl/İlçe: Beşiktaş/İstanbul\n"
+    "Tel: 0212 265 16 16\n"
 )
 
 # Türkçe karakter dostu font (aynı klasöre DejaVuSans.ttf koy)

@@ -91,13 +91,20 @@ def place_logo(c: canvas.Canvas, logo_bytes, x, y, width_mm):
     except Exception:
         return 0
 
-def add_code128(c: canvas.Canvas, text, x, y, width_mm=50, height_mm=15):
+def add_code128(c: canvas.Canvas, text, x, y, width_mm=32, height_mm=12):
+    """
+    Code128 barkodu doğrudan canvas'a çizer (drawOn).
+    width_mm hedef genişliktir; barWidth'u metin uzunluğuna göre yaklaşık hesaplıyoruz.
+    """
     if not text:
         return
-    bc = code128.Code128(text, barHeight=height_mm*mm, humanReadable=False)
-    d = Drawing(width_mm*mm, height_mm*mm)
-    d.add(bc)
-    renderPDF.draw(d, c, x, y)
+    # Yaklaşık modül sayısı ~ 11 * len(text) + 35 (start/stop/guard vs.)
+    approx_modules = 11 * len(text) + 35
+    target_width_pt = width_mm * mm
+    bar_width = max(min(target_width_pt / max(approx_modules, 1), 1.2), 0.2)  # 0.2–1.2 pt arası sıkıştır
+
+    bc = code128.Code128(text, barHeight=height_mm * mm, barWidth=bar_width, humanReadable=False)
+    bc.drawOn(c, x, y)
 
 def add_qr(c: canvas.Canvas, text, x, y, size_mm=28):
     if not text:

@@ -94,16 +94,20 @@ def place_logo(c: canvas.Canvas, logo_bytes, x, y, width_mm):
 def add_code128(c: canvas.Canvas, text, x, y, width_mm=32, height_mm=12):
     """
     Code128 barkodu doğrudan canvas'a çizer (drawOn).
-    width_mm hedef genişliktir; barWidth'u metin uzunluğuna göre yaklaşık hesaplıyoruz.
+    width_mm hedef genişlik; barWidth yaklaşık hesaplanır.
     """
     if not text:
         return
-    # Yaklaşık modül sayısı ~ 11 * len(text) + 35 (start/stop/guard vs.)
+    # Yaklaşık modül sayısı: 11*len + sabitler
     approx_modules = 11 * len(text) + 35
     target_width_pt = width_mm * mm
-    bar_width = max(min(target_width_pt / max(approx_modules, 1), 1.2), 0.2)  # 0.2–1.2 pt arası sıkıştır
-
-    bc = code128.Code128(text, barHeight=height_mm * mm, barWidth=bar_width, humanReadable=False)
+    bar_width = max(min(target_width_pt / max(approx_modules, 1), 1.2), 0.2)
+    bc = code128.Code128(
+        text,
+        barHeight=height_mm * mm,
+        barWidth=bar_width,
+        humanReadable=False
+    )
     bc.drawOn(c, x, y)
 
 def add_qr(c: canvas.Canvas, text, x, y, size_mm=28):
@@ -139,7 +143,7 @@ def make_label_pdf(
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(W, H))
 
-    # Kenarlar (A5'te biraz daha sıkı)
+    # Kenarlar
     margin_x = 10*mm
     margin_y = 10*mm
     usable_w = W - 2*margin_x
@@ -148,7 +152,6 @@ def make_label_pdf(
     draw_cut_marks(c, W, H)
 
     # Üst alan: Logo + Başlık + Ücret Rozeti
-    # Ücret rozeti (büyük ve belirgin)
     c.setFillColorRGB(0.82, 0, 0)
     badge_w, badge_h = 30*mm, 12*mm
     c.roundRect(W - margin_x - badge_w, H - margin_y - badge_h, badge_w, badge_h, 3*mm, stroke=0, fill=1)
@@ -157,13 +160,13 @@ def make_label_pdf(
     c.drawCentredString(W - margin_x - badge_w/2, H - margin_y - badge_h/2 - 3, pay_short)
     c.setFillColorRGB(0, 0, 0)
 
-    # Logo (solda, orta büyüklük)
+    # Logo (solda)
     top_y = H - margin_y - 4*mm
     used_h = 0
     if logo_bytes:
         used_h = place_logo(c, logo_bytes, margin_x, top_y, width_mm=30)
 
-    # Başlık (orta büyüklük)
+    # Başlık
     c.setFont(FONT_NAME, 16)
     c.drawString(margin_x, H - margin_y - (used_h + 6*mm), "KARGO ETİKETİ")
 
@@ -171,13 +174,12 @@ def make_label_pdf(
     c.setLineWidth(1.2)
     c.line(margin_x, H - margin_y - (used_h + 10*mm), margin_x + usable_w, H - margin_y - (used_h + 10*mm))
 
-    # ALICI — büyük puntolar (uzaktan okunur)
+    # ALICI — büyük puntolar
     y = H - margin_y - (used_h + 20*mm)
     c.setFont(FONT_NAME, 15)
     c.drawString(margin_x, y, "ALICI")
     y -= 9*mm
 
-    # Alıcı bilgileri — büyük ve kalın
     c.setFont(FONT_NAME, 28)  # İsim/Firma büyük
     c.drawString(margin_x, y, f"{recipient_name}")
     y -= 10*mm
@@ -188,7 +190,7 @@ def make_label_pdf(
 
     # Adres — okunabilir büyük
     c.setFont(FONT_NAME, 16)
-    approx_chars = int(usable_w / (3.7*mm))  # satır başına yaklaşık karakter
+    approx_chars = int(usable_w / (3.7*mm))
     for line in wrap_text_lines(address, max(38, approx_chars)):
         y -= 7*mm
         c.drawString(margin_x, y, line)

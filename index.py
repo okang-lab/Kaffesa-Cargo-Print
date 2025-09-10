@@ -27,14 +27,20 @@ SENDER_BLOCK_DEFAULT = (
     "Tel: +90 5xx xxx xx xx\n"
 )
 
-# Türkçe karakter dostu font (aynı klasöre DejaVuSans.ttf koyarsan otomatik yüklenir)
-FONT_NAME = "Helvetica"
-if os.path.isfile("DejaVuSans.ttf"):
+# Türkçe karakter dostu font (aynı klasöre DejaVuSans.ttf koy)
+FONT_NAME = None
+FONT_PATH = "DejaVuSans.ttf"
+if os.path.isfile(FONT_PATH):
     try:
-        pdfmetrics.registerFont(TTFont("DejaVuSans", "DejaVuSans.ttf"))
+        pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_PATH))
         FONT_NAME = "DejaVuSans"
-    except Exception:
-        pass
+    except Exception as e:
+        FONT_NAME = "Helvetica"  # son çare
+else:
+    FONT_NAME = "Helvetica"
+
+if FONT_NAME != "DejaVuSans":
+    st.warning("Türkçe karakterlerin PDF’te bozulmaması için **DejaVuSans.ttf** dosyasını proje köküne ekleyin.")
 
 # Sabit logo (index.py ile aynı klasörde logo.png)
 def load_logo_bytes():
@@ -92,13 +98,9 @@ def place_logo(c: canvas.Canvas, logo_bytes, x, y, width_mm):
         return 0
 
 def add_code128(c: canvas.Canvas, text, x, y, width_mm=32, height_mm=12):
-    """
-    Code128 barkodu doğrudan canvas'a çizer (drawOn).
-    width_mm hedef genişlik; barWidth yaklaşık hesaplanır.
-    """
+    """Code128 barkodu doğrudan canvas'a çizer (drawOn)."""
     if not text:
         return
-    # Yaklaşık modül sayısı: 11*len + sabitler
     approx_modules = 11 * len(text) + 35
     target_width_pt = width_mm * mm
     bar_width = max(min(target_width_pt / max(approx_modules, 1), 1.2), 0.2)
@@ -115,35 +117,30 @@ def add_qr(c: canvas.Canvas, text, x, y, size_mm=28):
         return
     qrc = qr.QrCodeWidget(text)
     b = qrc.getBounds()
-    w = b[2] - b[0]
-    h = b[3] - b[1]
+    w = b[2] - b[0]; h = b[3] - b[1]
     d = Drawing(size_mm*mm, size_mm*mm)
-    sx = (size_mm*mm) / w
-    sy = (size_mm*mm) / h
+    sx = (size_mm*mm) / w; sy = (size_mm*mm) / h
     d.scale(sx, sy)
     d.add(qrc)
     renderPDF.draw(d, c, x, y)
 
+# --- Sayfa boyutu helper ---
+def get_pagesize(name="A5"):
+    if name == "100x150":
+        return (100*mm, 150*mm)
+    elif name == "A4":
+        return A4
+    else:
+        return (148*mm, 210*mm)  # A5
+
 # -------------------------
-# PDF üretimi (A5 = yarım A4)
+# ÇİZİM: Etiketi varolan canvas’a çiz
 # -------------------------
-def make_label_pdf(
+def draw_label_on_canvas(
+    c: canvas.Canvas, W, H,
     recipient_name, phone, address, sender_block, pay_short,
-    page_size_name="A5",  # "A5" (yarım A4), "A4", "100x150"
     logo_bytes=None, order_id="", carrier="", put_qr=True, put_barcode=True
 ):
-    # Sayfa boyutu
-    if page_size_name == "100x150":
-        W, H = 100*mm, 150*mm
-    elif page_size_name == "A4":
-        W, H = A4
-    else:  # A5 (A4'ün yarısı)
-        W, H = (148*mm, 210*mm)
-
-    buf = io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=(W, H))
-
-    # Kenarlar
     margin_x = 10*mm
     margin_y = 10*mm
     usable_w = W - 2*margin_x
@@ -151,7 +148,7 @@ def make_label_pdf(
     # Kesim işaretleri
     draw_cut_marks(c, W, H)
 
-    # Üst alan: Logo + Başlık + Ücret Rozeti
+    # Ücret rozeti (büyük ve kırmızı)
     c.setFillColorRGB(0.82, 0, 0)
     badge_w, badge_h = 30*mm, 12*mm
     c.roundRect(W - margin_x - badge_w, H - margin_y - badge_h, badge_w, badge_h, 3*mm, stroke=0, fill=1)
@@ -166,16 +163,14 @@ def make_label_pdf(
     if logo_bytes:
         used_h = place_logo(c, logo_bytes, margin_x, top_y, width_mm=30)
 
-    # Başlık
-    c.setFont(FONT_NAME, 16)
-    c.drawString(margin_x, H - margin_y - (used_h + 6*mm), "KARGO ETİKETİ")
+    # (İSTEK) Başlık kaldırıldı → "KARGO ETİKETİ" yazısı YOK
 
     # Ayraç çizgi
     c.setLineWidth(1.2)
-    c.line(margin_x, H - margin_y - (used_h + 10*mm), margin_x + usable_w, H - margin_y - (used_h + 10*mm))
+    c.line(margin_x, H - margin_y - (used_h + 6*mm), margin_x + usable_w, H - margin_y - (used_h + 6*mm))
 
     # ALICI — büyük puntolar
-    y = H - margin_y - (used_h + 20*mm)
+    y = H - margin_y - (used_h + 16*mm)
     c.setFont(FONT_NAME, 15)
     c.drawString(margin_x, y, "ALICI")
     y -= 9*mm
@@ -204,13 +199,13 @@ def make_label_pdf(
     # QR & Barkod — sağ blok
     meta_text = (order_id or "").strip()
     right_x = W - margin_x - 34*mm
-    top_block_y = H - margin_y - (used_h + 18*mm)
+    top_block_y = H - margin_y - (used_h + 14*mm)
     if put_qr and meta_text:
         add_qr(c, f"{meta_text} | {pay_short}", right_x, top_block_y - 24*mm, size_mm=28)
     if put_barcode and meta_text:
         add_code128(c, meta_text, right_x, top_block_y - 42*mm, width_mm=32, height_mm=12)
 
-    # GÖNDERİCİ — daha küçük puntolar
+    # GÖNDERİCİ — daha küçük
     y -= 14*mm
     c.setFont(FONT_NAME, 14)
     c.drawString(margin_x, y, "Gönderici")
@@ -225,14 +220,47 @@ def make_label_pdf(
     # Dış çerçeve
     c.rect(margin_x-4*mm, margin_y, usable_w+8*mm, H - 2*margin_y)
 
+# -------------------------
+# TEK ETİKET PDF (indir)
+# -------------------------
+def build_single_label_pdf(page_size_name, **kwargs):
+    W, H = get_pagesize(page_size_name)
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(W, H))
+    draw_label_on_canvas(c, W, H, **kwargs)
     c.showPage()
     c.save()
     buf.seek(0)
-    return buf.getvalue(), (W, H)
+    return buf.getvalue()
 
+# -------------------------
+# TOPLU PDF (çok sayfa, indir)
+# -------------------------
+def build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, put_qr, put_barcode):
+    W, H = get_pagesize(page_size_name)
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(W, H))
+    for r in rows:
+        pay_short = r["final_pay"]  # önceden hesaplanacak
+        draw_label_on_canvas(
+            c, W, H,
+            r["name"], r["phone"], r["address"],
+            sender_block, pay_short,
+            logo_bytes=logo_bytes,
+            order_id=r.get("order_id",""),
+            carrier=r.get("carrier",""),
+            put_qr=put_qr, put_barcode=put_barcode
+        )
+        c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf.getvalue()
+
+# -------------------------
+# HTML yazdırma (tek)
+# -------------------------
 def make_print_html(recipient_name, phone, address, sender_block, pay_short,
                     page_size_name="A5", logo_b64=None, order_id="", carrier="", put_qr=True):
-    # CSS boyut
     if page_size_name == "100x150":
         page_css = "@page { size: 100mm 150mm; margin: 8mm; }"
     elif page_size_name == "A4":
@@ -248,10 +276,11 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
 <html>
 <head>
 <meta charset="utf-8">
-<title>Etiket – {recipient_name}</title>
+<title>Etiket</title>
 <style>
   {page_css}
-  body {{ font-family: Arial, sans-serif; margin:0; padding:0; }}
+  body {{ font-family: Arial, sans-serif; margin:0; padding:0;
+         -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
   .frame {{ border: 1px solid #000; padding: 8mm; margin: 8mm; position: relative; }}
   .pill {{
     position: absolute; top: 8mm; right: 8mm;
@@ -259,7 +288,6 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
     padding: 6px 14px; border-radius: 10px;
   }}
   .head {{ display:flex; align-items:center; gap:8mm; margin-bottom:6mm; }}
-  .title {{ font-size: 16px; font-weight: 600; }}
   .sec {{ font-weight: 700; margin-top: 6mm; font-size: 15px; }}
   .r-name {{ font-size: 28px; font-weight: 700; margin: 4mm 0; }}
   .r-phone {{ font-size: 22px; margin: 2mm 0; }}
@@ -272,7 +300,7 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
 <body>
   <div class="frame">
     <div class="pill">{pay_short}</div>
-    <div class="head">{logo_html}<div class="title">KARGO ETİKETİ</div></div>
+    <div class="head">{logo_html}</div>
 
     <div class="sec">ALICI</div>
     <div class="r-name">{recipient_name}</div>
@@ -296,6 +324,81 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
     return "data:text/html;base64," + base64.b64encode(html_block.encode("utf-8")).decode("ascii")
 
 # -------------------------
+# HTML toplu yazdırma (çok sayfa)
+# -------------------------
+def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, put_qr):
+    if page_size_name == "100x150":
+        page_css = "@page { size: 100mm 150mm; margin: 8mm; }"
+    elif page_size_name == "A4":
+        page_css = "@page { size: A4; margin: 10mm; }"
+    else:
+        page_css = "@page { size: A5; margin: 8mm; }"
+
+    pages = []
+    for r in rows:
+        pay_short = r["final_pay"]
+        qr_html = f'<div style="font-size:11px;opacity:.7;">QR: {r.get("order_id","")} | {pay_short}</div>' if (put_qr and r.get("order_id")) else ""
+        logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="height:auto; width:30mm; object-fit:contain; margin-right:8mm;" />' if logo_b64 else ""
+
+        page = f"""
+<div class="frame page">
+  <div class="pill">{pay_short}</div>
+  <div class="head">{logo_html}</div>
+
+  <div class="sec">ALICI</div>
+  <div class="r-name">{r['name']}</div>
+  <div class="r-phone">Tel: {r['phone']}</div>
+  {"<div class='r-addr'>Kargo: "+r.get("carrier","")+"</div>" if r.get("carrier") else ""}
+  <div class="r-addr">{r['address']}</div>
+
+  <div class="s-label">Gönderici</div>
+  <div class="s-body">{sender_block}</div>
+
+  <div style="margin-top:6mm;font-size:11px;opacity:.8;">Sipariş No: {r.get("order_id","")}</div>
+  {qr_html}
+</div>
+"""
+        pages.append(page)
+
+    html = f"""
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Toplu Etiket Yazdır</title>
+<style>
+  {page_css}
+  body {{ font-family: Arial, sans-serif; margin:0; padding:0;
+         -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+  .frame {{ border: 1px solid #000; padding: 8mm; margin: 8mm; position: relative; }}
+  .pill {{
+    position: absolute; top: 8mm; right: 8mm;
+    font-weight: 800; font-size: 22px; color: #fff; background: #d00;
+    padding: 6px 14px; border-radius: 10px;
+  }}
+  .head {{ display:flex; align-items:center; gap:8mm; margin-bottom:6mm; }}
+  .sec {{ font-weight: 700; margin-top: 6mm; font-size: 15px; }}
+  .r-name {{ font-size: 28px; font-weight: 700; margin: 4mm 0; }}
+  .r-phone {{ font-size: 22px; margin: 2mm 0; }}
+  .r-addr {{ font-size: 16px; line-height: 1.3; }}
+  .s-label {{ font-size: 14px; margin-top: 8mm; font-weight: 700; }}
+  .s-body {{ font-size: 12px; white-space: pre-wrap; }}
+  .page {{ page-break-after: always; }}
+  @media print {{ a#print-btn {{ display:none; }} }}
+</style>
+</head>
+<body>
+  {''.join(pages)}
+  <a id="print-btn" href="#" onclick="window.print();return false;"
+     style="display:block;text-align:center;margin:10px 8mm;padding:.6rem;border:1px solid #ddd;border-radius:8px;text-decoration:none;">
+     🖨️ Hepsini Yazdır
+  </a>
+</body>
+</html>
+"""
+    return "data:text/html;base64," + base64.b64encode(html.encode("utf-8")).decode("ascii")
+
+# -------------------------
 # UI
 # -------------------------
 st.title("Kargo Etiket Oluşturucu")
@@ -313,7 +416,8 @@ with st.sidebar:
 
 st.markdown(
     "- **Yarım A4 (A5)** varsayılan: A4’ün yarısı kadar yer kaplar, uzaktan okunur büyük yazı.\n"
-    "- Metin kutusundaki **ÜA/ÜG** dördüncü sütundan okunur; **radyo seçimi** nihai karardır."
+    "- Metin kutusundaki **ÜA/ÜG** dördüncü sütundan okunur; **radyo seçimi** nihai karardır.\n"
+    "- “KARGO ETİKETİ” başlığı kaldırıldı."
 )
 
 with st.expander("🔧 Tasarım & Seçenekler"):
@@ -349,11 +453,12 @@ for line in raw.splitlines():
 if not rows:
     st.info("Sağda butonların gelmesi için soldaki kutuya en az 1 satır alıcı bilgisi gir.")
 else:
-    st.success(f"{len(rows)} alıcı bulundu. Her biri için **ÜA/ÜG** son kontrol ve tek sayfa PDF butonu aşağıda.")
+    st.success(f"{len(rows)} alıcı bulundu. Her biri için **ÜA/ÜG** son kontrol ve tek sayfa PDF/ Yazdır seçenekleri aşağıda.")
 
     logo_bytes = load_logo_bytes()
     logo_b64 = base64.b64encode(logo_bytes).decode("ascii") if logo_bytes else None
 
+    # --- Önce kartlarda son kontrol + tekli butonlar ---
     for i, r in enumerate(rows, start=1):
         with st.container(border=True):
             st.markdown(f"**#{i} – {r['name']}**")
@@ -376,19 +481,18 @@ else:
                 key=f"pay_{i}"
             )
             pay_short = "ÜA" if "ÜA" in pay_opt else "ÜG"
+            rows[i-1]["final_pay"] = pay_short  # toplu işlemler için kaydet
 
             col1, col2 = st.columns([1,1])
 
-            # 1) PDF indir
+            # 1) Tek PDF indir
             with col1:
-                pdf_bytes, _ = make_label_pdf(
-                    r["name"], r["phone"], r["address"],
-                    sender_block, pay_short,
-                    page_size_name=page_size_name,
-                    logo_bytes=logo_bytes,
-                    order_id=r.get("order_id",""),
-                    carrier=r.get("carrier",""),
-                    put_qr=put_qr, put_barcode=put_barcode
+                pdf_bytes = build_single_label_pdf(
+                    page_size_name,
+                    recipient_name=r["name"], phone=r["phone"], address=r["address"],
+                    sender_block=sender_block, pay_short=pay_short,
+                    logo_bytes=logo_bytes, order_id=r.get("order_id",""),
+                    carrier=r.get("carrier",""), put_qr=put_qr, put_barcode=put_barcode
                 )
                 file_name = f"etiket_{sanitize_filename(r['name'])}.pdf"
                 st.download_button(
@@ -400,7 +504,7 @@ else:
                     key=f"dl_{i}",
                 )
 
-            # 2) Tarayıcıdan yazdır
+            # 2) Tek yazdır
             with col2:
                 data_url = make_print_html(
                     r["name"], r["phone"], r["address"], sender_block, pay_short,
@@ -414,3 +518,27 @@ else:
                     'border-radius:8px;text-decoration:none;">🖨️ Tarayıcıdan yazdır (tek sayfa)</a>',
                     unsafe_allow_html=True,
                 )
+
+    # --- Toplu işlemler ---
+    st.markdown("### Toplu işlemler")
+    colA, colB = st.columns([1,1])
+
+    with colA:
+        bulk_pdf = build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, put_qr, put_barcode)
+        st.download_button(
+            label="📦 Toplu PDF indir (çok sayfa)",
+            data=bulk_pdf,
+            file_name="etiketler_toplu.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key="bulk_pdf_dl",
+        )
+
+    with colB:
+        bulk_html_url = make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, put_qr)
+        st.markdown(
+            f'<a href="{bulk_html_url}" target="_blank" '
+            'style="display:block;text-align:center;padding:.6rem;border:1px solid #ddd;'
+            'border-radius:8px;text-decoration:none;">🖨️ Toplu yazdır (tarayıcı)</a>',
+            unsafe_allow_html=True,
+        )

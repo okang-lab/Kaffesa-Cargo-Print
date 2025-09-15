@@ -4,6 +4,7 @@
 import io, os, re, base64, textwrap, unicodedata
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -28,19 +29,14 @@ SENDER_BLOCK_DEFAULT = (
 )
 
 # Türkçe karakter dostu font (aynı klasöre DejaVuSans.ttf koy)
-FONT_NAME = None
 FONT_PATH = "DejaVuSans.ttf"
 if os.path.isfile(FONT_PATH):
-    try:
-        pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_PATH))
-        FONT_NAME = "DejaVuSans"
-    except Exception:
-        FONT_NAME = "Helvetica"  # son çare
+    pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_PATH))
+    FONT_NAME = "DejaVuSans"
 else:
     FONT_NAME = "Helvetica"
-
-if FONT_NAME != "DejaVuSans":
-    st.warning("Türkçe karakterlerin PDF’te bozulmaması için **DejaVuSans.ttf** dosyasını proje köküne ekleyin.")
+    st.error("⚠️ DejaVuSans.ttf bulunamadı. PDF’te Türkçe ve satır aralıkları bozulabilir. "
+             "Lütfen dosyayı proje köküne ekleyin.")
 
 # Sabit logo (index.py ile aynı klasörde logo.png)
 def load_logo_bytes():
@@ -54,9 +50,7 @@ def load_logo_bytes():
 def normalize_pay_token(token: str) -> str | None:
     if not token:
         return None
-    t = unicodedata.normalize("NFKC", token).strip().lower()
-    t = t.replace(" ", "")
-    # olası varyasyonlar: üa/ua, üg/ug (kombine ü işaretleri dahil)
+    t = unicodedata.normalize("NFKC", token).strip().lower().replace(" ", "")
     if t in ("üa", "ua"):
         return "ÜA"
     if t in ("üg", "ug"):
@@ -133,7 +127,7 @@ def get_pagesize(name="A5"):
     elif name == "A4":
         return A4
     else:
-        return (148*mm, 210*mm)  # A5
+        return (148*mm, 210*mm)  # A5 (yarım A4)
 
 # -------------------------
 # ÇİZİM: Etiketi varolan canvas’a çiz
@@ -141,7 +135,8 @@ def get_pagesize(name="A5"):
 def draw_label_on_canvas(
     c: canvas.Canvas, W, H,
     recipient_name, phone, address, sender_block, pay_short,
-    logo_bytes=None, order_id="", carrier="", put_qr=True, put_barcode=True
+    logo_bytes=None, order_id="", carrier="", put_qr=True, put_barcode=True,
+    badge_scale=1.2
 ):
     margin_x = 10*mm
     margin_y = 10*mm
@@ -150,13 +145,14 @@ def draw_label_on_canvas(
     # Kesim işaretleri
     draw_cut_marks(c, W, H)
 
-    # Ücret rozeti (büyük ve kırmızı)
+    # Ücret rozeti (kırmızı) — 1×–2× ölçek
+    scale = max(1.0, min(2.0, float(badge_scale)))
     c.setFillColorRGB(0.82, 0, 0)
-    badge_w, badge_h = 30*mm, 12*mm
-    c.roundRect(W - margin_x - badge_w, H - margin_y - badge_h, badge_w, badge_h, 3*mm, stroke=0, fill=1)
+    badge_w, badge_h = 30*mm*scale, 12*mm*scale
+    c.roundRect(W - margin_x - badge_w, H - margin_y - badge_h, badge_w, badge_h, 3*mm*scale, stroke=0, fill=1)
     c.setFillColorRGB(1, 1, 1)
-    c.setFont(FONT_NAME, 26)
-    c.drawCentredString(W - margin_x - badge_w/2, H - margin_y - badge_h/2 - 3, pay_short)
+    c.setFont(FONT_NAME, int(26*scale))
+    c.drawCentredString(W - margin_x - badge_w/2, H - margin_y - badge_h/2 - (3*scale), pay_short)
     c.setFillColorRGB(0, 0, 0)
 
     # Logo (solda)
@@ -164,8 +160,6 @@ def draw_label_on_canvas(
     used_h = 0
     if logo_bytes:
         used_h = place_logo(c, logo_bytes, margin_x, top_y, width_mm=30)
-
-    # Başlık kaldırıldı (istenmişti)
 
     # Ayraç çizgi
     c.setLineWidth(1.2)
@@ -185,11 +179,11 @@ def draw_label_on_canvas(
     c.drawString(margin_x, y, f"Tel: {phone}")
     y -= 9*mm
 
-    # Adres — okunabilir büyük
+    # Adres — okunabilir büyük (PDF metrik farklarına karşı satır aralığı +1mm)
     c.setFont(FONT_NAME, 16)
     approx_chars = int(usable_w / (3.7*mm))
     for line in wrap_text_lines(address, max(38, approx_chars)):
-        y -= 7*mm
+        y -= 8*mm
         c.drawString(margin_x, y, line)
 
     # (Opsiyonel) Kargo firması
@@ -207,7 +201,7 @@ def draw_label_on_canvas(
     if put_barcode and meta_text:
         add_code128(c, meta_text, right_x, top_block_y - 42*mm, width_mm=32, height_mm=12)
 
-    # GÖNDERİCİ — daha küçük
+    # GÖNDERİCİ — daha küçük, satır aralığı +1mm
     y -= 14*mm
     c.setFont(FONT_NAME, 14)
     c.drawString(margin_x, y, "Gönderici")
@@ -216,7 +210,7 @@ def draw_label_on_canvas(
     for line in sender_block.split("\n"):
         if not line.strip():
             continue
-        y -= 6*mm
+        y -= 7*mm
         c.drawString(margin_x, y, line)
 
     # Dış çerçeve
@@ -238,12 +232,12 @@ def build_single_label_pdf(page_size_name, **kwargs):
 # -------------------------
 # TOPLU PDF (çok sayfa, indir)
 # -------------------------
-def build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, put_qr, put_barcode):
+def build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, put_qr, put_barcode, badge_scale):
     W, H = get_pagesize(page_size_name)
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(W, H))
     for r in rows:
-        pay_short = r["final_pay"]  # önceden hesaplanacak
+        pay_short = r["final_pay"]
         draw_label_on_canvas(
             c, W, H,
             r["name"], r["phone"], r["address"],
@@ -251,7 +245,8 @@ def build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, put_qr, put_b
             logo_bytes=logo_bytes,
             order_id=r.get("order_id",""),
             carrier=r.get("carrier",""),
-            put_qr=put_qr, put_barcode=put_barcode
+            put_qr=put_qr, put_barcode=put_barcode,
+            badge_scale=badge_scale
         )
         c.showPage()
     c.save()
@@ -259,16 +254,21 @@ def build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, put_qr, put_b
     return buf.getvalue()
 
 # -------------------------
-# HTML yazdırma (tek)
+# HTML yazdırma (tek) — string olarak döner (components.html ile basacağız)
 # -------------------------
 def make_print_html(recipient_name, phone, address, sender_block, pay_short,
-                    page_size_name="A5", logo_b64=None, order_id="", carrier="", put_qr=True):
+                    page_size_name="A5", logo_b64=None, order_id="", carrier="", put_qr=True,
+                    badge_scale=1.2):
     if page_size_name == "100x150":
         page_css = "@page { size: 100mm 150mm; margin: 8mm; }"
     elif page_size_name == "A4":
         page_css = "@page { size: A4; margin: 10mm; }"
     else:
         page_css = "@page { size: A5; margin: 8mm; }"
+
+    pill_fs = int(22*badge_scale)
+    pill_pad_v = int(6*badge_scale)
+    pill_pad_h = int(14*badge_scale)
 
     logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="height:auto; width:30mm; object-fit:contain; margin-right:8mm;" />' if logo_b64 else ""
     qr_html = f'<div style="font-size:11px;opacity:.7;">QR: {order_id} | {pay_short}</div>' if (put_qr and order_id) else ""
@@ -286,14 +286,14 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
   .frame {{ border: 1px solid #000; padding: 8mm; margin: 8mm; position: relative; }}
   .pill {{
     position: absolute; top: 8mm; right: 8mm;
-    font-weight: 800; font-size: 22px; color: #fff; background: #d00;
-    padding: 6px 14px; border-radius: 10px;
+    font-weight: 800; font-size: {pill_fs}px; color: #fff; background: #d00;
+    padding: {pill_pad_v}px {pill_pad_h}px; border-radius: 10px;
   }}
   .head {{ display:flex; align-items:center; gap:8mm; margin-bottom:6mm; }}
   .sec {{ font-weight: 700; margin-top: 6mm; font-size: 15px; }}
   .r-name {{ font-size: 28px; font-weight: 700; margin: 4mm 0; }}
   .r-phone {{ font-size: 22px; margin: 2mm 0; }}
-  .r-addr {{ font-size: 16px; line-height: 1.3; }}
+  .r-addr {{ font-size: 16px; line-height: 1.35; }}
   .s-label {{ font-size: 14px; margin-top: 8mm; font-weight: 700; }}
   .s-body {{ font-size: 12px; white-space: pre-wrap; }}
   @media print {{ a#print-btn {{ display:none; }} }}
@@ -316,25 +316,25 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
     <div style="margin-top:6mm;font-size:11px;opacity:.8;">Sipariş No: {order_id}</div>
     {qr_html}
   </div>
-  <a id="print-btn" href="#" onclick="window.print();return false;"
-     style="display:block;text-align:center;margin:10px 8mm;padding:.6rem;border:1px solid #ddd;border-radius:8px;text-decoration:none;">
-     🖨️ Yazdır
-  </a>
 </body>
 </html>
 """
-    return "data:text/html;base64," + base64.b64encode(html_block.encode("utf-8")).decode("ascii")
+    return html_block
 
 # -------------------------
-# HTML toplu yazdırma (çok sayfa)
+# HTML toplu yazdırma (çok sayfa) — string döner
 # -------------------------
-def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, put_qr):
+def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, put_qr, badge_scale=1.2):
     if page_size_name == "100x150":
         page_css = "@page { size: 100mm 150mm; margin: 8mm; }"
     elif page_size_name == "A4":
         page_css = "@page { size: A4; margin: 10mm; }"
     else:
         page_css = "@page { size: A5; margin: 8mm; }"
+
+    pill_fs = int(22*badge_scale)
+    pill_pad_v = int(6*badge_scale)
+    pill_pad_h = int(14*badge_scale)
 
     pages = []
     for r in rows:
@@ -375,30 +375,25 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, put_qr):
   .frame {{ border: 1px solid #000; padding: 8mm; margin: 8mm; position: relative; }}
   .pill {{
     position: absolute; top: 8mm; right: 8mm;
-    font-weight: 800; font-size: 22px; color: #fff; background: #d00;
-    padding: 6px 14px; border-radius: 10px;
+    font-weight: 800; font-size: {pill_fs}px; color: #fff; background: #d00;
+    padding: {pill_pad_v}px {pill_pad_h}px; border-radius: 10px;
   }}
   .head {{ display:flex; align-items:center; gap:8mm; margin-bottom:6mm; }}
   .sec {{ font-weight: 700; margin-top: 6mm; font-size: 15px; }}
   .r-name {{ font-size: 28px; font-weight: 700; margin: 4mm 0; }}
   .r-phone {{ font-size: 22px; margin: 2mm 0; }}
-  .r-addr {{ font-size: 16px; line-height: 1.3; }}
+  .r-addr {{ font-size: 16px; line-height: 1.35; }}
   .s-label {{ font-size: 14px; margin-top: 8mm; font-weight: 700; }}
   .s-body {{ font-size: 12px; white-space: pre-wrap; }}
   .page {{ page-break-after: always; }}
-  @media print {{ a#print-btn {{ display:none; }} }}
 </style>
 </head>
 <body>
   {''.join(pages)}
-  <a id="print-btn" href="#" onclick="window.print();return false;"
-     style="display:block;text-align:center;margin:10px 8mm;padding:.6rem;border:1px solid #ddd;border-radius:8px;text-decoration:none;">
-     🖨️ Hepsini Yazdır
-  </a>
 </body>
 </html>
 """
-    return "data:text/html;base64," + base64.b64encode(html.encode("utf-8")).decode("ascii")
+    return html
 
 # -------------------------
 # UI
@@ -419,7 +414,7 @@ with st.sidebar:
 st.markdown(
     "- **Yarım A4 (A5)** varsayılan: A4’ün yarısı kadar yer kaplar, uzaktan okunur büyük yazı.\n"
     "- **Excel Modu:** 19 sütundan sadece **I=9 (İsim/Firma), Q=17 (Telefon), R=18 (Adres), S=19 (Ücret)** kullanılır.\n"
-    "- Metin kutusundaki **Ücret (ÜA/ÜG)** radyo ile son kontrolden geçer."
+    "- **Güvenli Yazdır:** Yazdırma penceresi aynı sayfada açılır (about:blank sorunu yok)."
 )
 
 with st.expander("🔧 Tasarım & Seçenekler"):
@@ -430,7 +425,8 @@ with st.expander("🔧 Tasarım & Seçenekler"):
     with colB:
         put_qr = st.checkbox("QR kod ekle (Sipariş No varsa)", value=True)
         put_barcode = st.checkbox("Barkod (Code128) ekle", value=True)
-        st.caption("QR/Barkod için satırdaki 5. sütun 'Sipariş No' varsayılan alınır (bu modda boş bırakılıyor).")
+        badge_scale = st.slider("Ücret rozeti ölçeği (1×–2×)", 1.0, 2.0, 1.2, 0.1)
+        st.caption("QR/Barkod için sipariş no kullanılmadığı sürece görünmez.")
 
 # -------------------------
 # Satırları parse et (Excel: I,Q,R,S -> 9,17,18,19)
@@ -439,8 +435,7 @@ rows = []
 for line in raw.splitlines():
     if not line.strip():
         continue
-    parts = [p.strip() for p in line.split(sep_char)]  # BOŞ hücreleri koru! (indexler kaymasın)
-    # en az 19 hücre olsun
+    parts = [p.strip() for p in line.split(sep_char)]
     if len(parts) < 19:
         parts += [""] * (19 - len(parts))
 
@@ -451,7 +446,6 @@ for line in raw.splitlines():
 
     parsed_pay = normalize_pay_token(pay_cell) if pay_cell else None
 
-    # En azından isim/telefon/adres veya ücretten biri doluysa ekle
     if any([name_cell, phone_cell, addr_cell, parsed_pay]):
         rows.append(
             {
@@ -459,7 +453,6 @@ for line in raw.splitlines():
                 "phone": phone_cell,
                 "address": addr_cell,
                 "parsed_pay": parsed_pay,
-                # Bu modda sipariş/kargo boş bırakıyoruz (gerekirse sonra eklersin)
                 "order_id": "",
                 "carrier":  "",
             }
@@ -468,7 +461,7 @@ for line in raw.splitlines():
 if not rows:
     st.info("Sağda butonların gelmesi için soldaki kutuya Excel’den en az 1 satır yapıştır.")
 else:
-    st.success(f"{len(rows)} alıcı bulundu. Her biri için **Ücret (ÜA/ÜG)** son kontrol ve tek sayfa PDF/Yazdır seçenekleri aşağıda.")
+    st.success(f"{len(rows)} alıcı bulundu. Ücret (ÜA/ÜG) için son kontrol yapıp yazdır/indir.")
 
     logo_bytes = load_logo_bytes()
     logo_b64 = base64.b64encode(logo_bytes).decode("ascii") if logo_bytes else None
@@ -492,9 +485,9 @@ else:
                 key=f"pay_{i}"
             )
             pay_short = "ÜA" if "ÜA" in pay_opt else "ÜG"
-            rows[i-1]["final_pay"] = pay_short  # toplu işlemler için kaydet
+            rows[i-1]["final_pay"] = pay_short
 
-            col1, col2 = st.columns([1,1])
+            col1, col2, col3 = st.columns([1,1,1])
 
             # 1) Tek PDF indir
             with col1:
@@ -503,7 +496,8 @@ else:
                     recipient_name=r["name"], phone=r["phone"], address=r["address"],
                     sender_block=sender_block, pay_short=pay_short,
                     logo_bytes=logo_bytes, order_id=r.get("order_id",""),
-                    carrier=r.get("carrier",""), put_qr=put_qr, put_barcode=put_barcode
+                    carrier=r.get("carrier",""), put_qr=put_qr, put_barcode=put_barcode,
+                    badge_scale=badge_scale
                 )
                 file_name = f"etiket_{sanitize_filename(r['name'])}.pdf"
                 st.download_button(
@@ -515,27 +509,31 @@ else:
                     key=f"dl_{i}",
                 )
 
-            # 2) Tek yazdır
+            # 2) Tek yazdır (güvenli)
             with col2:
-                data_url = make_print_html(
-                    r["name"], r["phone"], r["address"], sender_block, pay_short,
-                    page_size_name=page_size_name,
-                    logo_b64=logo_b64, order_id=r.get("order_id",""),
-                    carrier=r.get("carrier",""), put_qr=put_qr
-                )
-                st.markdown(
-                    f'<a href="{data_url}" target="_blank" '
-                    'style="display:block;text-align:center;padding:.6rem;border:1px solid #ddd;'
-                    'border-radius:8px;text-decoration:none;">🖨️ Tarayıcıdan yazdır (tek sayfa)</a>',
-                    unsafe_allow_html=True,
-                )
+                if st.button("🖨️ Tarayıcıdan yazdır (tek sayfa)", key=f"print_{i}", use_container_width=True):
+                    html = make_print_html(
+                        r["name"], r["phone"], r["address"], sender_block, pay_short,
+                        page_size_name=page_size_name,
+                        logo_b64=logo_b64, order_id=r.get("order_id",""),
+                        carrier=r.get("carrier",""), put_qr=put_qr,
+                        badge_scale=badge_scale
+                    )
+                    components.html(
+                        html + "<script>window.onload = () => { window.print(); }</script>",
+                        height=1100, scrolling=True
+                    )
+
+            # 3) (Opsiyonel) Boş
+            with col3:
+                st.write("")
 
     # --- Toplu işlemler ---
     st.markdown("### Toplu işlemler")
     colA, colB = st.columns([1,1])
 
     with colA:
-        bulk_pdf = build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, put_qr, put_barcode)
+        bulk_pdf = build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, put_qr, put_barcode, badge_scale)
         st.download_button(
             label="📦 Toplu PDF indir (çok sayfa)",
             data=bulk_pdf,
@@ -546,10 +544,9 @@ else:
         )
 
     with colB:
-        bulk_html_url = make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, put_qr)
-        st.markdown(
-            f'<a href="{bulk_html_url}" target="_blank" '
-            'style="display:block;text-align:center;padding:.6rem;border:1px solid #ddd;'
-            'border-radius:8px;text-decoration:none;">🖨️ Toplu yazdır (tarayıcı)</a>',
-            unsafe_allow_html=True,
-        )
+        if st.button("🖨️ Toplu yazdır (tarayıcı)", use_container_width=True):
+            bulk_html = make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, put_qr, badge_scale)
+            components.html(
+                bulk_html + "<script>window.onload = () => { window.print(); }</script>",
+                height=1100, scrolling=True
+            )

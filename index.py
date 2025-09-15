@@ -378,4 +378,5 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, put_qr):
   .pill {{
     position: absolute; top: 8mm; right: 8mm;
     font-weight: 800; font-size: 22px; color: #fff; background: #d00;
-   
+   """
+    return ...

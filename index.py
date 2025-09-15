@@ -1,7 +1,7 @@
 # index.py
 # requirements: streamlit, reportlab, pandas
 
-import io, os, re, base64, textwrap
+import io, os, re, base64, textwrap, unicodedata
 import pandas as pd
 import streamlit as st
 
@@ -34,7 +34,7 @@ if os.path.isfile(FONT_PATH):
     try:
         pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_PATH))
         FONT_NAME = "DejaVuSans"
-    except Exception as e:
+    except Exception:
         FONT_NAME = "Helvetica"  # son çare
 else:
     FONT_NAME = "Helvetica"
@@ -54,14 +54,12 @@ def load_logo_bytes():
 def normalize_pay_token(token: str) -> str | None:
     if not token:
         return None
-    # birleşik 'ü' gibi varyasyonları normalize et
-    t = (token.strip()
-               .lower()
-               .replace("ü", "ü")
-               .replace("ğ", "g"))
-    if t in ("üa","ua"):
+    t = unicodedata.normalize("NFKC", token).strip().lower()
+    t = t.replace(" ", "")
+    # olası varyasyonlar: üa/ua, üg/ug (kombine ü işaretleri dahil)
+    if t in ("üa", "ua"):
         return "ÜA"
-    if t in ("üg","ug"):
+    if t in ("üg", "ug"):
         return "ÜG"
     return None
 
@@ -167,7 +165,7 @@ def draw_label_on_canvas(
     if logo_bytes:
         used_h = place_logo(c, logo_bytes, margin_x, top_y, width_mm=30)
 
-    # Başlık YOK (kaldırıldı)
+    # Başlık kaldırıldı (istenmişti)
 
     # Ayraç çizgi
     c.setLineWidth(1.2)
@@ -378,5 +376,180 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, put_qr):
   .pill {{
     position: absolute; top: 8mm; right: 8mm;
     font-weight: 800; font-size: 22px; color: #fff; background: #d00;
-   """
-    return ...
+    padding: 6px 14px; border-radius: 10px;
+  }}
+  .head {{ display:flex; align-items:center; gap:8mm; margin-bottom:6mm; }}
+  .sec {{ font-weight: 700; margin-top: 6mm; font-size: 15px; }}
+  .r-name {{ font-size: 28px; font-weight: 700; margin: 4mm 0; }}
+  .r-phone {{ font-size: 22px; margin: 2mm 0; }}
+  .r-addr {{ font-size: 16px; line-height: 1.3; }}
+  .s-label {{ font-size: 14px; margin-top: 8mm; font-weight: 700; }}
+  .s-body {{ font-size: 12px; white-space: pre-wrap; }}
+  .page {{ page-break-after: always; }}
+  @media print {{ a#print-btn {{ display:none; }} }}
+</style>
+</head>
+<body>
+  {''.join(pages)}
+  <a id="print-btn" href="#" onclick="window.print();return false;"
+     style="display:block;text-align:center;margin:10px 8mm;padding:.6rem;border:1px solid #ddd;border-radius:8px;text-decoration:none;">
+     🖨️ Hepsini Yazdır
+  </a>
+</body>
+</html>
+"""
+    return "data:text/html;base64," + base64.b64encode(html.encode("utf-8")).decode("ascii")
+
+# -------------------------
+# UI
+# -------------------------
+st.title("Kargo Etiket Oluşturucu")
+
+with st.sidebar:
+    st.subheader("Alıcı Bilgileri (Excel’den kopyala–yapıştır)")
+    st.caption("Bu modda 19 sütundan sadece **I (9)=İsim/Firma, Q (17)=Telefon, R (18)=Adres, S (19)=Ücret** okunur.")
+    raw = st.text_area(
+        "Excel’den satırları kopyalayıp buraya yapıştır. Ayraç genelde TAB olur.",
+        height=240,
+        placeholder="Excel satırlarını (19 sütun) kopyalayıp buraya yapıştırın. I/Q/R/S otomatik alınacaktır.",
+    )
+    sep = st.radio("Ayraç", ["TAB", ";", ","], index=0, horizontal=True)
+    sep_char = "\t" if sep == "TAB" else (";" if sep == ";" else ",")
+
+st.markdown(
+    "- **Yarım A4 (A5)** varsayılan: A4’ün yarısı kadar yer kaplar, uzaktan okunur büyük yazı.\n"
+    "- **Excel Modu:** 19 sütundan sadece **I=9 (İsim/Firma), Q=17 (Telefon), R=18 (Adres), S=19 (Ücret)** kullanılır.\n"
+    "- Metin kutusundaki **Ücret (ÜA/ÜG)** radyo ile son kontrolden geçer."
+)
+
+with st.expander("🔧 Tasarım & Seçenekler"):
+    colA, colB = st.columns(2)
+    with colA:
+        page_size_name = st.selectbox("Etiket Boyutu", ["A5", "A4", "100x150"], index=0)
+        sender_block = st.text_area("Gönderici Bloğu", value=SENDER_BLOCK_DEFAULT, height=120)
+    with colB:
+        put_qr = st.checkbox("QR kod ekle (Sipariş No varsa)", value=True)
+        put_barcode = st.checkbox("Barkod (Code128) ekle", value=True)
+        st.caption("QR/Barkod için satırdaki 5. sütun 'Sipariş No' varsayılan alınır (bu modda boş bırakılıyor).")
+
+# -------------------------
+# Satırları parse et (Excel: I,Q,R,S -> 9,17,18,19)
+# -------------------------
+rows = []
+for line in raw.splitlines():
+    if not line.strip():
+        continue
+    parts = [p.strip() for p in line.split(sep_char)]  # BOŞ hücreleri koru! (indexler kaymasın)
+    # en az 19 hücre olsun
+    if len(parts) < 19:
+        parts += [""] * (19 - len(parts))
+
+    name_cell  = parts[8]   # I (9)  -> İsim/Firma
+    phone_cell = parts[16]  # Q (17) -> Telefon
+    addr_cell  = parts[17]  # R (18) -> Adres
+    pay_cell   = parts[18]  # S (19) -> Ücret (ÜA/ÜG)
+
+    parsed_pay = normalize_pay_token(pay_cell) if pay_cell else None
+
+    # En azından isim/telefon/adres veya ücretten biri doluysa ekle
+    if any([name_cell, phone_cell, addr_cell, parsed_pay]):
+        rows.append(
+            {
+                "name": name_cell,
+                "phone": phone_cell,
+                "address": addr_cell,
+                "parsed_pay": parsed_pay,
+                # Bu modda sipariş/kargo boş bırakıyoruz (gerekirse sonra eklersin)
+                "order_id": "",
+                "carrier":  "",
+            }
+        )
+
+if not rows:
+    st.info("Sağda butonların gelmesi için soldaki kutuya Excel’den en az 1 satır yapıştır.")
+else:
+    st.success(f"{len(rows)} alıcı bulundu. Her biri için **Ücret (ÜA/ÜG)** son kontrol ve tek sayfa PDF/Yazdır seçenekleri aşağıda.")
+
+    logo_bytes = load_logo_bytes()
+    logo_b64 = base64.b64encode(logo_bytes).decode("ascii") if logo_bytes else None
+
+    # --- Kartlarda son kontrol + tekli butonlar ---
+    for i, r in enumerate(rows, start=1):
+        with st.container(border=True):
+            st.markdown(f"**#{i} – {r['name']}**")
+            if r.get("phone"):  st.write(f"**Telefon:** {r['phone']}")
+            if r.get("address"): st.write(f"**Adres:** {r['address']}")
+
+            # Radyo varsayılanı: satırdan geldiyse onu seç
+            default_index = 0  # ÜA
+            if r.get("parsed_pay") == "ÜG":
+                default_index = 1
+            pay_opt = st.radio(
+                "Kargo ücreti",
+                ["ÜA (Ücret Alıcı)", "ÜG (Ücret Gönderici)"],
+                index=default_index,
+                horizontal=True,
+                key=f"pay_{i}"
+            )
+            pay_short = "ÜA" if "ÜA" in pay_opt else "ÜG"
+            rows[i-1]["final_pay"] = pay_short  # toplu işlemler için kaydet
+
+            col1, col2 = st.columns([1,1])
+
+            # 1) Tek PDF indir
+            with col1:
+                pdf_bytes = build_single_label_pdf(
+                    page_size_name,
+                    recipient_name=r["name"], phone=r["phone"], address=r["address"],
+                    sender_block=sender_block, pay_short=pay_short,
+                    logo_bytes=logo_bytes, order_id=r.get("order_id",""),
+                    carrier=r.get("carrier",""), put_qr=put_qr, put_barcode=put_barcode
+                )
+                file_name = f"etiket_{sanitize_filename(r['name'])}.pdf"
+                st.download_button(
+                    label="📄 PDF indir (tek sayfa)",
+                    data=pdf_bytes,
+                    file_name=file_name,
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key=f"dl_{i}",
+                )
+
+            # 2) Tek yazdır
+            with col2:
+                data_url = make_print_html(
+                    r["name"], r["phone"], r["address"], sender_block, pay_short,
+                    page_size_name=page_size_name,
+                    logo_b64=logo_b64, order_id=r.get("order_id",""),
+                    carrier=r.get("carrier",""), put_qr=put_qr
+                )
+                st.markdown(
+                    f'<a href="{data_url}" target="_blank" '
+                    'style="display:block;text-align:center;padding:.6rem;border:1px solid #ddd;'
+                    'border-radius:8px;text-decoration:none;">🖨️ Tarayıcıdan yazdır (tek sayfa)</a>',
+                    unsafe_allow_html=True,
+                )
+
+    # --- Toplu işlemler ---
+    st.markdown("### Toplu işlemler")
+    colA, colB = st.columns([1,1])
+
+    with colA:
+        bulk_pdf = build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, put_qr, put_barcode)
+        st.download_button(
+            label="📦 Toplu PDF indir (çok sayfa)",
+            data=bulk_pdf,
+            file_name="etiketler_toplu.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key="bulk_pdf_dl",
+        )
+
+    with colB:
+        bulk_html_url = make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, put_qr)
+        st.markdown(
+            f'<a href="{bulk_html_url}" target="_blank" '
+            'style="display:block;text-align:center;padding:.6rem;border:1px solid #ddd;'
+            'border-radius:8px;text-decoration:none;">🖨️ Toplu yazdır (tarayıcı)</a>',
+            unsafe_allow_html=True,
+        )

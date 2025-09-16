@@ -43,15 +43,13 @@ def load_logo_bytes():
     except FileNotFoundError:
         return None
 
-# Ücret kısaltması normalize
+# Ücret kısaltması normalize (ÜA/ÜG)
 def normalize_pay_token(token: str) -> str | None:
     if not token:
         return None
     t = unicodedata.normalize("NFKC", token).strip().lower().replace(" ", "")
-    if t in ("üa", "ua"):
-        return "ÜA"
-    if t in ("üg", "ug"):
-        return "ÜG"
+    if t in ("üa", "ua"): return "ÜA"
+    if t in ("üg", "ug"): return "ÜG"
     return None
 
 def sanitize_filename(s: str) -> str:
@@ -60,7 +58,7 @@ def sanitize_filename(s: str) -> str:
     return s[:60] if s else "etiket"
 
 def wrap_text_lines(text: str, max_chars: int):
-    for line in textwrap.wrap(text, width=max_chars):
+    for line in textwrap.wrap(text or "", width=max_chars):
         yield line
 
 def draw_cut_marks(c: canvas.Canvas, W, H, margin=6*mm, len_=5*mm):
@@ -104,7 +102,7 @@ def get_pagesize(name="A4"):
 # -------------------------
 def open_print_window_with_html(html: str):
     """
-    Yazdırma içeriğini yeni bir sekmeye yazar ve güvenilir şekilde print eder.
+    Yazdırma içeriğini yeni sekmeye yazar ve güvenli şekilde print eder.
     """
     safe_js = f"""
     <script>
@@ -144,7 +142,7 @@ def open_print_window_with_html(html: str):
     components.html(safe_js, height=0, scrolling=False)
 
 # -------------------------
-# ÇİZİM: Etiketi varolan canvas’a çiz
+# ÇİZİM: Etiketi varolan canvas’a çiz (PDF)
 # -------------------------
 def draw_label_on_canvas(
     c: canvas.Canvas, W, H,
@@ -188,25 +186,33 @@ def draw_label_on_canvas(
     c.drawString(margin_x, y, f"{recipient_name}")
     y -= 10*mm
 
-    # Telefon satırı (büyük puntoda)
-    c.setFont(FONT_NAME, 22)
-    c.drawString(margin_x, y, f"Tel: {phone}")
+    # ÖNCE ADRES (büyük kısa satır + tam adres daha büyük)
+    addr_short = (address or "").replace("\n", " ").strip()
+    if len(addr_short) > 60:
+        addr_short = addr_short[:60] + "…"
+    c.setFont(FONT_NAME, 22)  # kısa satır (büyük)
+    c.drawString(margin_x, y, f"Adres: {addr_short}")
     y -= 9*mm
 
-    # Tam Adres — okunabilir büyük
-    c.setFont(FONT_NAME, 16)
+    c.setFont(FONT_NAME, 18)  # tam adres (telefon'dan daha büyük)
     approx_chars = int(usable_w / (3.7*mm))
     for line in wrap_text_lines(address, max(38, approx_chars)):
         y -= 8*mm
         c.drawString(margin_x, y, line)
 
+    # SONRA TELEFON (daha küçük)
+    y -= 8*mm
+    c.setFont(FONT_NAME, 16)
+    c.drawString(margin_x, y, f"Tel: {phone}")
+    y -= 8*mm
+
     # GÖNDERİCİ — büyük ve ferah
-    y -= 16*mm
+    y -= 12*mm
     c.setFont(FONT_NAME, 16)   # başlık
     c.drawString(margin_x, y, "Gönderici")
     y -= 8*mm
     c.setFont(FONT_NAME, 14)   # gövde
-    for line in sender_block.split("\n"):
+    for line in (sender_block or "").split("\n"):
         if not line.strip():
             continue
         y -= 8*mm
@@ -266,6 +272,10 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
     pill_pad_h = int(14*badge_scale)
     logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="height:auto; width:30mm; object-fit:contain; margin-right:8mm;" />' if logo_b64 else ""
 
+    addr_short = (address or "").replace("\n", " ").strip()
+    if len(addr_short) > 60:
+        addr_short = addr_short[:60] + "…"
+
     html_block = f"""
 <!doctype html>
 <html>
@@ -285,8 +295,9 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
   .head {{ display:flex; align-items:center; gap:8mm; margin-bottom:6mm; }}
   .sec {{ font-weight: 700; margin-top: 6mm; font-size: 15px; }}
   .r-name {{ font-size: 28px; font-weight: 700; margin: 4mm 0; }}
-  .r-phone {{ font-size: 22px; margin: 2mm 0; }}
-  .r-addr {{ font-size: 16px; line-height: 1.35; }}
+  .r-addr-big {{ font-size: 22px; margin: 2mm 0; }}   /* kısa adres */
+  .r-addr {{ font-size: 18px; line-height: 1.35; }}  /* tam adres (telefon'dan büyük) */
+  .r-phone {{ font-size: 16px; margin: 2mm 0; }}     /* telefon (küçük) */
   .s-label {{ font-size: 16px; margin-top: 10mm; font-weight: 700; }}
   .s-body {{ font-size: 14px; white-space: pre-wrap; line-height: 1.45; }}
   @media print {{ a#print-btn {{ display:none; }} }}
@@ -299,8 +310,9 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
 
     <div class="sec">ALICI</div>
     <div class="r-name">{recipient_name}</div>
-    <div class="r-phone">Tel: {phone}</div>
+    <div class="r-addr-big">Adres: {addr_short}</div>
     <div class="r-addr">{address}</div>
+    <div class="r-phone">Tel: {phone}</div>
 
     <div class="s-label">Gönderici</div>
     <div class="s-body">{sender_block}</div>
@@ -327,7 +339,11 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_sca
 
     pages = []
     for r in rows:
+        addr_short = (r['address'] or "").replace("\n", " ").strip()
+        if len(addr_short) > 60:
+            addr_short = addr_short[:60] + "…"
         logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="height:auto; width:30mm; object-fit:contain; margin-right:8mm;" />' if logo_b64 else ""
+
         page = f"""
 <div class="frame page">
   <div class="pill">{r['final_pay']}</div>
@@ -335,8 +351,9 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_sca
 
   <div class="sec">ALICI</div>
   <div class="r-name">{r['name']}</div>
-  <div class="r-phone">Tel: {r['phone']}</div>
+  <div class="r-addr-big">Adres: {addr_short}</div>
   <div class="r-addr">{r['address']}</div>
+  <div class="r-phone">Tel: {r['phone']}</div>
 
   <div class="s-label">Gönderici</div>
   <div class="s-body">{sender_block}</div>
@@ -363,8 +380,9 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_sca
   .head {{ display:flex; align-items:center; gap:8mm; margin-bottom:6mm; }}
   .sec {{ font-weight: 700; margin-top: 6mm; font-size: 15px; }}
   .r-name {{ font-size: 28px; font-weight: 700; margin: 4mm 0; }}
-  .r-phone {{ font-size: 22px; margin: 2mm 0; }}
-  .r-addr {{ font-size: 16px; line-height: 1.35; }}
+  .r-addr-big {{ font-size: 22px; margin: 2mm 0; }}
+  .r-addr {{ font-size: 18px; line-height: 1.35; }}
+  .r-phone {{ font-size: 16px; margin: 2mm 0; }}
   .s-label {{ font-size: 16px; margin-top: 10mm; font-weight: 700; }}
   .s-body {{ font-size: 14px; white-space: pre-wrap; line-height: 1.45; }}
   .page {{ page-break-after: always; }}
@@ -384,7 +402,7 @@ st.title("Kargo Etiket Oluşturucu")
 
 with st.sidebar:
     st.subheader("Alıcı Bilgileri (Excel’den kopyala–yapıştır)")
-    st.caption("Bu modda 19 sütundan **I=Alıcı Adı (9)**, **Q=Adres (17)**, **R=Telefon (18)**, **S=Kargo Ödemesi (19)** okunur.")
+    st.caption("Bu modda 19 sütundan **I=Alıcı Adı (9)**, **Q=Adres (17)**, **R=Telefon (18)**, **S=Kargo Ödemesi (ÜA/ÜG) (19)** okunur.")
     raw = st.text_area(
         "Excel’den satırları kopyalayıp buraya yapıştır. Ayraç genelde TAB olur.",
         height=240,
@@ -395,8 +413,8 @@ with st.sidebar:
 
 st.markdown(
     "- **Varsayılan Boyut:** A4 (menüden A5 ya da 100×150 seçebilirsin).\n"
-    "- **Excel Modu (güncel):** I=Alıcı Adı, Q=Adres, R=Telefon, S=Kargo Ödemesi (ÜA/ÜG).\n"
-    "- **Güvenli Yazdır:** Yazdırma penceresi yeni sekmede güvenle açılır (about:blank/iframe sorunu yok)."
+    "- **Excel Modu (güncel):** I=Ad, Q=Adres, R=Telefon, S=ÜA/ÜG.\n"
+    "- **Güvenli Yazdır:** Yazdırma penceresi yeni sekmede güvenle açılır."
 )
 
 with st.expander("🔧 Tasarım & Seçenekler"):
@@ -421,7 +439,7 @@ for line in raw.splitlines():
     name_cell  = parts[8]   # I (9)  -> Alıcı Adı
     addr_cell  = parts[16]  # Q (17) -> Adres
     phone_cell = parts[17]  # R (18) -> Telefon
-    pay_cell   = parts[18]  # S (19) -> Kargo Ödemesi (ÜA/ÜG)
+    pay_cell   = parts[18]  # S (19) -> Ücret (ÜA/ÜG)
 
     parsed_pay = normalize_pay_token(pay_cell) if pay_cell else None
 
@@ -447,8 +465,8 @@ else:
     for i, r in enumerate(rows, start=1):
         with st.container(border=True):
             st.markdown(f"**#{i} – {r['name']}**")
-            if r.get("phone"):  st.write(f"**Telefon:** {r['phone']}")
             if r.get("address"): st.write(f"**Adres:** {r['address']}")
+            if r.get("phone"):   st.write(f"**Telefon:** {r['phone']}")
 
             # Radyo varsayılanı: satırdan geldiyse onu seç
             default_index = 0  # ÜA

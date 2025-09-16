@@ -100,6 +100,50 @@ def get_pagesize(name="A4"):
         return (148*mm, 210*mm)  # A5 (yarım A4)
 
 # -------------------------
+# Yazdırmayı yeni pencerede güvenli tetikleme
+# -------------------------
+def open_print_window_with_html(html: str):
+    """
+    Yazdırma içeriğini yeni bir sekmeye yazar ve güvenilir şekilde print eder.
+    """
+    safe_js = f"""
+    <script>
+    (function() {{
+      try {{
+        var w = window.open('', '_blank');
+        if (!w) {{
+          alert('Tarayıcı yeni pencere açmayı engelledi. Lütfen bu site için pop-up izni verin.');
+          return;
+        }}
+        w.document.open();
+        w.document.write(`{html.replace('`','\\`')}`);
+        w.document.close();
+
+        var imgs = w.document.images;
+        var total = imgs.length, loaded = 0;
+        function done() {{
+          try {{ w.focus(); setTimeout(function(){{ w.print(); }}, 120); }} catch(e) {{}}
+        }}
+        if (total === 0) {{ done(); }}
+        else {{
+          for (var i=0;i<total;i++) {{
+            if (imgs[i].complete) {{
+              loaded++; if (loaded===total) done();
+            }} else {{
+              imgs[i].addEventListener('load', function(){{ loaded++; if (loaded===total) done(); }});
+              imgs[i].addEventListener('error', function(){{ loaded++; if (loaded===total) done(); }});
+            }}
+          }}
+        }}
+      }} catch (e) {{
+        alert('Yazdırma penceresi açılamadı: ' + e);
+      }}
+    }})();
+    </script>
+    """
+    components.html(safe_js, height=0, scrolling=False)
+
+# -------------------------
 # ÇİZİM: Etiketi varolan canvas’a çiz
 # -------------------------
 def draw_label_on_canvas(
@@ -140,31 +184,28 @@ def draw_label_on_canvas(
     c.drawString(margin_x, y, "ALICI")
     y -= 9*mm
 
-    c.setFont(FONT_NAME, 28)  # İsim/Firma büyük
+    c.setFont(FONT_NAME, 28)  # Alıcı adı / firma
     c.drawString(margin_x, y, f"{recipient_name}")
     y -= 10*mm
 
-    # Tel yerine Adres satırı (adres kısa özeti, büyük puntoda)
-    addr_short = address.replace("\n", " ").strip()
-    if len(addr_short) > 60:
-        addr_short = addr_short[:60] + "…"
-    c.setFont(FONT_NAME, 22)  # eskiden Tel satırıydı
-    c.drawString(margin_x, y, f"Adres: {addr_short}")
+    # Telefon satırı (büyük puntoda)
+    c.setFont(FONT_NAME, 22)
+    c.drawString(margin_x, y, f"Tel: {phone}")
     y -= 9*mm
 
-    # Tam Adres — okunabilir büyük (PDF metrik farklarına karşı satır aralığı +1mm)
+    # Tam Adres — okunabilir büyük
     c.setFont(FONT_NAME, 16)
     approx_chars = int(usable_w / (3.7*mm))
     for line in wrap_text_lines(address, max(38, approx_chars)):
         y -= 8*mm
         c.drawString(margin_x, y, line)
 
-    # GÖNDERİCİ — daha büyük ve ferah
+    # GÖNDERİCİ — büyük ve ferah
     y -= 16*mm
-    c.setFont(FONT_NAME, 16)   # başlık 16pt
+    c.setFont(FONT_NAME, 16)   # başlık
     c.drawString(margin_x, y, "Gönderici")
     y -= 8*mm
-    c.setFont(FONT_NAME, 14)   # gövde 14pt
+    c.setFont(FONT_NAME, 14)   # gövde
     for line in sender_block.split("\n"):
         if not line.strip():
             continue
@@ -225,10 +266,6 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
     pill_pad_h = int(14*badge_scale)
     logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="height:auto; width:30mm; object-fit:contain; margin-right:8mm;" />' if logo_b64 else ""
 
-    addr_short = address.replace("\n", " ").strip()
-    if len(addr_short) > 60:
-        addr_short = addr_short[:60] + "…"
-
     html_block = f"""
 <!doctype html>
 <html>
@@ -248,7 +285,7 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
   .head {{ display:flex; align-items:center; gap:8mm; margin-bottom:6mm; }}
   .sec {{ font-weight: 700; margin-top: 6mm; font-size: 15px; }}
   .r-name {{ font-size: 28px; font-weight: 700; margin: 4mm 0; }}
-  .r-addr-big {{ font-size: 22px; margin: 2mm 0; }}
+  .r-phone {{ font-size: 22px; margin: 2mm 0; }}
   .r-addr {{ font-size: 16px; line-height: 1.35; }}
   .s-label {{ font-size: 16px; margin-top: 10mm; font-weight: 700; }}
   .s-body {{ font-size: 14px; white-space: pre-wrap; line-height: 1.45; }}
@@ -262,7 +299,7 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
 
     <div class="sec">ALICI</div>
     <div class="r-name">{recipient_name}</div>
-    <div class="r-addr-big">Adres: {addr_short}</div>
+    <div class="r-phone">Tel: {phone}</div>
     <div class="r-addr">{address}</div>
 
     <div class="s-label">Gönderici</div>
@@ -290,11 +327,7 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_sca
 
     pages = []
     for r in rows:
-        addr_short = r['address'].replace("\n", " ").strip()
-        if len(addr_short) > 60:
-            addr_short = addr_short[:60] + "…"
         logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="height:auto; width:30mm; object-fit:contain; margin-right:8mm;" />' if logo_b64 else ""
-
         page = f"""
 <div class="frame page">
   <div class="pill">{r['final_pay']}</div>
@@ -302,7 +335,7 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_sca
 
   <div class="sec">ALICI</div>
   <div class="r-name">{r['name']}</div>
-  <div class="r-addr-big">Adres: {addr_short}</div>
+  <div class="r-phone">Tel: {r['phone']}</div>
   <div class="r-addr">{r['address']}</div>
 
   <div class="s-label">Gönderici</div>
@@ -330,7 +363,7 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_sca
   .head {{ display:flex; align-items:center; gap:8mm; margin-bottom:6mm; }}
   .sec {{ font-weight: 700; margin-top: 6mm; font-size: 15px; }}
   .r-name {{ font-size: 28px; font-weight: 700; margin: 4mm 0; }}
-  .r-addr-big {{ font-size: 22px; margin: 2mm 0; }}
+  .r-phone {{ font-size: 22px; margin: 2mm 0; }}
   .r-addr {{ font-size: 16px; line-height: 1.35; }}
   .s-label {{ font-size: 16px; margin-top: 10mm; font-weight: 700; }}
   .s-body {{ font-size: 14px; white-space: pre-wrap; line-height: 1.45; }}
@@ -351,19 +384,19 @@ st.title("Kargo Etiket Oluşturucu")
 
 with st.sidebar:
     st.subheader("Alıcı Bilgileri (Excel’den kopyala–yapıştır)")
-    st.caption("Bu modda 19 sütundan sadece **I (9)=İsim/Firma, Q (17)=Telefon, R (18)=Adres, S (19)=Ücret** okunur.")
+    st.caption("Bu modda 19 sütundan **I=Alıcı Adı (9)**, **Q=Adres (17)**, **R=Telefon (18)**, **S=Kargo Ödemesi (19)** okunur.")
     raw = st.text_area(
         "Excel’den satırları kopyalayıp buraya yapıştır. Ayraç genelde TAB olur.",
         height=240,
-        placeholder="Excel satırlarını (19 sütun) kopyalayıp buraya yapıştırın. I/Q/R/S otomatik alınacaktır.",
+        placeholder="Excel satırlarını (19 sütun) kopyalayıp yapıştırın. I/Q/R/S otomatik alınır.",
     )
     sep = st.radio("Ayraç", ["TAB", ";", ","], index=0, horizontal=True)
     sep_char = "\t" if sep == "TAB" else (";" if sep == ";" else ",")
 
 st.markdown(
     "- **Varsayılan Boyut:** A4 (menüden A5 ya da 100×150 seçebilirsin).\n"
-    "- **Excel Modu:** 19 sütundan sadece **I=9 (İsim/Firma), Q=17 (Telefon), R=18 (Adres), S=19 (Ücret)** kullanılır.\n"
-    "- **Güvenli Yazdır:** Yazdırma penceresi aynı sayfada açılır (about:blank sorunu yok)."
+    "- **Excel Modu (güncel):** I=Alıcı Adı, Q=Adres, R=Telefon, S=Kargo Ödemesi (ÜA/ÜG).\n"
+    "- **Güvenli Yazdır:** Yazdırma penceresi yeni sekmede güvenle açılır (about:blank/iframe sorunu yok)."
 )
 
 with st.expander("🔧 Tasarım & Seçenekler"):
@@ -375,7 +408,7 @@ with st.expander("🔧 Tasarım & Seçenekler"):
         badge_scale = st.slider("Ücret rozeti ölçeği (1×–2×)", 1.0, 2.0, 1.7, 0.1)
 
 # -------------------------
-# Satırları parse et (Excel: I,Q,R,S -> 9,17,18,19)
+# Satırları parse et — I, Q, R, S  (I=9, Q=17, R=18, S=19)
 # -------------------------
 rows = []
 for line in raw.splitlines():
@@ -385,10 +418,10 @@ for line in raw.splitlines():
     if len(parts) < 19:
         parts += [""] * (19 - len(parts))
 
-    name_cell  = parts[8]   # I (9)  -> İsim/Firma
-    phone_cell = parts[17]  # Q (17) -> Telefon
-    addr_cell  = parts[18]  # R (18) -> Adres
-    pay_cell   = parts[19]  # S (19) -> Ücret (ÜA/ÜG)
+    name_cell  = parts[8]   # I (9)  -> Alıcı Adı
+    addr_cell  = parts[16]  # Q (17) -> Adres
+    phone_cell = parts[17]  # R (18) -> Telefon
+    pay_cell   = parts[18]  # S (19) -> Kargo Ödemesi (ÜA/ÜG)
 
     parsed_pay = normalize_pay_token(pay_cell) if pay_cell else None
 
@@ -405,7 +438,7 @@ for line in raw.splitlines():
 if not rows:
     st.info("Sağda butonların gelmesi için soldaki kutuya Excel’den en az 1 satır yapıştır.")
 else:
-    st.success(f"{len(rows)} alıcı bulundu. Ücret (ÜA/ÜG) için son kontrol yapıp yazdır/indir.")
+    st.success(f"{len(rows)} alıcı bulundu. Kargo ödemesi (ÜA/ÜG) için son kontrol yapıp yazdır/indir.")
 
     logo_bytes = load_logo_bytes()
     logo_b64 = base64.b64encode(logo_bytes).decode("ascii") if logo_bytes else None
@@ -422,7 +455,7 @@ else:
             if r.get("parsed_pay") == "ÜG":
                 default_index = 1
             pay_opt = st.radio(
-                "Kargo ücreti",
+                "Kargo ödemesi",
                 ["ÜA (Ücret Alıcı)", "ÜG (Ücret Gönderici)"],
                 index=default_index,
                 horizontal=True,
@@ -451,18 +484,14 @@ else:
                     key=f"dl_{i}",
                 )
 
-            # 2) Tek yazdır (güvenli)
+            # 2) Tek yazdır (güvenli yeni pencere)
             with col2:
                 if st.button("🖨️ Tarayıcıdan yazdır (tek sayfa)", key=f"print_{i}", use_container_width=True):
                     html = make_print_html(
                         r["name"], r["phone"], r["address"], sender_block, pay_short,
-                        page_size_name=page_size_name,
-                        logo_b64=logo_b64, badge_scale=badge_scale
+                        page_size_name=page_size_name, logo_b64=logo_b64, badge_scale=badge_scale
                     )
-                    components.html(
-                        html + "<script>window.onload = () => { window.print(); }</script>",
-                        height=1100, scrolling=True
-                    )
+                    open_print_window_with_html(html)
 
     # --- Toplu işlemler ---
     st.markdown("### Toplu işlemler")
@@ -482,7 +511,4 @@ else:
     with colB:
         if st.button("🖨️ Toplu yazdır (tarayıcı)", use_container_width=True):
             bulk_html = make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_scale)
-            components.html(
-                bulk_html + "<script>window.onload = () => { window.print(); }</script>",
-                height=1100, scrolling=True
-            )
+            open_print_window_with_html(bulk_html)

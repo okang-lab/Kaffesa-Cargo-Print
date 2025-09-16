@@ -182,7 +182,22 @@ def draw_label_on_canvas(
     c.drawString(margin_x, y, "ALICI")
     y -= 9*mm
 
-    c.setFont(FONT_NAME, 18); c.drawString(margin_x, y, "Adres:"); y -= 8*mm
+    c.setFont(FONT_NAME, 28)  # Alıcı adı / firma
+    c.drawString(margin_x, y, f"{recipient_name}")
+    y -= 10*mm
+
+    # YALNIZCA TAM ADRES (telefon'dan daha büyük)
+    c.setFont(FONT_NAME, 18)  # adres bloğu
+    approx_chars = int(usable_w / (3.7*mm))
+    for line in wrap_text_lines(address, max(38, approx_chars)):
+        y -= 8*mm
+        c.drawString(margin_x, y, line)
+
+    # SONRA TELEFON (daha küçük)
+    y -= 8*mm
+    c.setFont(FONT_NAME, 16)
+    c.drawString(margin_x, y, f"Tel: {phone}")
+    y -= 8*mm
 
     # GÖNDERİCİ — büyük ve ferah
     y -= 12*mm
@@ -250,10 +265,6 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
     pill_pad_h = int(14*badge_scale)
     logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="height:auto; width:30mm; object-fit:contain; margin-right:8mm;" />' if logo_b64 else ""
 
-    addr_short = (address or "").replace("\n", " ").strip()
-    if len(addr_short) > 60:
-        addr_short = addr_short[:60] + "…"
-
     html_block = f"""
 <!doctype html>
 <html>
@@ -273,9 +284,8 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
   .head {{ display:flex; align-items:center; gap:8mm; margin-bottom:6mm; }}
   .sec {{ font-weight: 700; margin-top: 6mm; font-size: 15px; }}
   .r-name {{ font-size: 28px; font-weight: 700; margin: 4mm 0; }}
-  .r-addr-big {{ font-size: 22px; margin: 2mm 0; }}   /* kısa adres */
-  .r-addr {{ font-size: 18px; line-height: 1.35; }}  /* tam adres (telefon'dan büyük) */
-  .r-phone {{ font-size: 16px; margin: 2mm 0; }}     /* telefon (küçük) */
+  .r-addr {{ font-size: 18px; line-height: 1.35; white-space: pre-wrap; }}
+  .r-phone {{ font-size: 16px; margin: 2mm 0; }}
   .s-label {{ font-size: 16px; margin-top: 10mm; font-weight: 700; }}
   .s-body {{ font-size: 14px; white-space: pre-wrap; line-height: 1.45; }}
   @media print {{ a#print-btn {{ display:none; }} }}
@@ -288,7 +298,6 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
 
     <div class="sec">ALICI</div>
     <div class="r-name">{recipient_name}</div>
-    <div class="r-addr-big">Adres: {addr_short}</div>
     <div class="r-addr">{address}</div>
     <div class="r-phone">Tel: {phone}</div>
 
@@ -317,9 +326,6 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_sca
 
     pages = []
     for r in rows:
-        addr_short = (r['address'] or "").replace("\n", " ").strip()
-        if len(addr_short) > 60:
-            addr_short = addr_short[:60] + "…"
         logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="height:auto; width:30mm; object-fit:contain; margin-right:8mm;" />' if logo_b64 else ""
 
         page = f"""
@@ -329,7 +335,6 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_sca
 
   <div class="sec">ALICI</div>
   <div class="r-name">{r['name']}</div>
-  <div class="r-addr-big">Adres: {addr_short}</div>
   <div class="r-addr">{r['address']}</div>
   <div class="r-phone">Tel: {r['phone']}</div>
 
@@ -358,8 +363,7 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_sca
   .head {{ display:flex; align-items:center; gap:8mm; margin-bottom:6mm; }}
   .sec {{ font-weight: 700; margin-top: 6mm; font-size: 15px; }}
   .r-name {{ font-size: 28px; font-weight: 700; margin: 4mm 0; }}
-  .r-addr-big {{ font-size: 22px; margin: 2mm 0; }}
-  .r-addr {{ font-size: 18px; line-height: 1.35; }}
+  .r-addr {{ font-size: 18px; line-height: 1.35; white-space: pre-wrap; }}
   .r-phone {{ font-size: 16px; margin: 2mm 0; }}
   .s-label {{ font-size: 16px; margin-top: 10mm; font-weight: 700; }}
   .s-body {{ font-size: 14px; white-space: pre-wrap; line-height: 1.45; }}

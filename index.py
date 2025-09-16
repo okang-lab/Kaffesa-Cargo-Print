@@ -386,9 +386,9 @@ for line in raw.splitlines():
         parts += [""] * (19 - len(parts))
 
     name_cell  = parts[8]   # I (9)  -> İsim/Firma
-    phone_cell = parts[16]  # Q (17) -> Telefon
-    addr_cell  = parts[17]  # R (18) -> Adres
-    pay_cell   = parts[18]  # S (19) -> Ücret (ÜA/ÜG)
+    phone_cell = parts[17]  # Q (17) -> Telefon
+    addr_cell  = parts[18]  # R (18) -> Adres
+    pay_cell   = parts[19]  # S (19) -> Ücret (ÜA/ÜG)
 
     parsed_pay = normalize_pay_token(pay_cell) if pay_cell else None
 

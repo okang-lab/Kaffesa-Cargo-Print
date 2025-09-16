@@ -35,6 +35,7 @@ else:
     st.error("⚠️ DejaVuSans.ttf bulunamadı. PDF’te Türkçe ve satır aralıkları bozulabilir. "
              "Lütfen dosyayı proje köküne ekleyin.")
 
+
 # Sabit logo (index.py ile aynı klasörde logo.png)
 def load_logo_bytes():
     try:

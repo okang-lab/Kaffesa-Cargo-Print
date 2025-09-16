@@ -182,29 +182,7 @@ def draw_label_on_canvas(
     c.drawString(margin_x, y, "ALICI")
     y -= 9*mm
 
-    c.setFont(FONT_NAME, 28)  # Alıcı adı / firma
-    c.drawString(margin_x, y, f"{recipient_name}")
-    y -= 10*mm
-
-    # ÖNCE ADRES (büyük kısa satır + tam adres daha büyük)
-    addr_short = (address or "").replace("\n", " ").strip()
-    if len(addr_short) > 60:
-        addr_short = addr_short[:60] + "…"
-    c.setFont(FONT_NAME, 22)  # kısa satır (büyük)
-    c.drawString(margin_x, y, f"Adres: {addr_short}")
-    y -= 9*mm
-
-    c.setFont(FONT_NAME, 18)  # tam adres (telefon'dan daha büyük)
-    approx_chars = int(usable_w / (3.7*mm))
-    for line in wrap_text_lines(address, max(38, approx_chars)):
-        y -= 8*mm
-        c.drawString(margin_x, y, line)
-
-    # SONRA TELEFON (daha küçük)
-    y -= 8*mm
-    c.setFont(FONT_NAME, 16)
-    c.drawString(margin_x, y, f"Tel: {phone}")
-    y -= 8*mm
+    c.setFont(FONT_NAME, 18); c.drawString(margin_x, y, "Adres:"); y -= 8*mm
 
     # GÖNDERİCİ — büyük ve ferah
     y -= 12*mm

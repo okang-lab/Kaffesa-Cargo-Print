@@ -1,4 +1,24 @@
 # index.py
+
+from flask import Flask
+import os
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Kaffesa Cargo Print uygulaması çalışıyor!"
+
+# Mevcut script kodlarını koru
+def main():
+    print("Kaffesa Cargo Print başladı")
+    # diğer kodlar
+
+# Flask server ve script'i birlikte çalıştır
+if __name__ == "__main__":
+    main()  # script'i çalıştır
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port)
 # requirements: streamlit, reportlab, pandas
 
 import io, os, re, base64, textwrap, unicodedata

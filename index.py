@@ -1,10 +1,12 @@
 # index.py
 # requirements: streamlit, reportlab, pandas
+# Güncelleme: 2025-10-08 — Tarih temelli bölme + popup azaltma + daha sağlam parsing
 
 import io, os, re, base64, textwrap, unicodedata
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+from datetime import datetime
 
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -28,13 +30,15 @@ SENDER_BLOCK_DEFAULT = (
 # Türkçe karakter dostu font (aynı klasöre DejaVuSans.ttf koy)
 FONT_PATH = "DejaVuSans.ttf"
 if os.path.isfile(FONT_PATH):
-    pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_PATH))
-    FONT_NAME = "DejaVuSans"
+    try:
+        pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_PATH))
+        FONT_NAME = "DejaVuSans"
+    except Exception:
+        FONT_NAME = "Helvetica"
+        st.warning("DejaVuSans.ttf yüklenemedi, Helvetica kullanılacak.")
 else:
     FONT_NAME = "Helvetica"
-    st.error("⚠️ DejaVuSans.ttf bulunamadı. PDF’te Türkçe ve satır aralıkları bozulabilir. "
-             "Lütfen dosyayı proje köküne ekleyin.")
-
+    st.warning("DejaVuSans.ttf bulunamadı. PDF’te Türkçe karakterlerde sorun olabilir.")
 
 # Sabit logo (index.py ile aynı klasörde logo.png)
 def load_logo_bytes():
@@ -103,44 +107,11 @@ def get_pagesize(name="A4"):
 # -------------------------
 def open_print_window_with_html(html: str):
     """
-    Yazdırma içeriğini yeni sekmeye yazar ve güvenli şekilde print eder.
+    Streamlit içinde components.html kullanarak yazdırma içeriğini yeni sekmede açar.
+    Buton tıklamasıyla çağrıldığında popup engeline takılmaması için kullanıcı etkileşimi içinde çalışması gerekir.
     """
-    safe_js = f"""
-    <script>
-    (function() {{
-      try {{
-        var w = window.open('', '_blank');
-        if (!w) {{
-          alert('Tarayıcı yeni pencere açmayı engelledi. Lütfen bu site için pop-up izni verin.');
-          return;
-        }}
-        w.document.open();
-        w.document.write(`{html.replace('`','\\`')}`);
-        w.document.close();
-
-        var imgs = w.document.images;
-        var total = imgs.length, loaded = 0;
-        function done() {{
-          try {{ w.focus(); setTimeout(function(){{ w.print(); }}, 120); }} catch(e) {{}}
-        }}
-        if (total === 0) {{ done(); }}
-        else {{
-          for (var i=0;i<total;i++) {{
-            if (imgs[i].complete) {{
-              loaded++; if (loaded===total) done();
-            }} else {{
-              imgs[i].addEventListener('load', function(){{ loaded++; if (loaded===total) done(); }});
-              imgs[i].addEventListener('error', function(){{ loaded++; if (loaded===total) done(); }});
-            }}
-          }}
-        }}
-      }} catch (e) {{
-        alert('Yazdırma penceresi açılamadı: ' + e);
-      }}
-    }})();
-    </script>
-    """
-    components.html(safe_js, height=0, scrolling=False)
+    # components.html içine JS koyup hemen çalıştırıyoruz (buton tıklaması ile tetiklenmeli)
+    components.html(html, height=0, scrolling=False)
 
 # -------------------------
 # ÇİZİM: Etiketi varolan canvas’a çiz (PDF)
@@ -164,7 +135,7 @@ def draw_label_on_canvas(
     c.roundRect(W - margin_x - badge_w, H - margin_y - badge_h, badge_w, badge_h, 3*mm*scale, stroke=0, fill=1)
     c.setFillColorRGB(1, 1, 1)
     c.setFont(FONT_NAME, int(26*scale))
-    c.drawCentredString(W - margin_x - badge_w/2, H - margin_y - badge_h/2 - (3*scale), pay_short)
+    c.drawCentredString(W - margin_x - badge_w/2, H - margin_y - badge_h/2 - (3*scale), pay_short or "")
     c.setFillColorRGB(0, 0, 0)
 
     # Logo (solda)
@@ -184,20 +155,20 @@ def draw_label_on_canvas(
     y -= 9*mm
 
     c.setFont(FONT_NAME, 28)  # Alıcı adı / firma
-    c.drawString(margin_x, y, f"{recipient_name}")
+    c.drawString(margin_x, y, f"{recipient_name or ''}")
     y -= 10*mm
 
     # YALNIZCA TAM ADRES (telefon'dan daha büyük)
     c.setFont(FONT_NAME, 18)  # adres bloğu
     approx_chars = int(usable_w / (3.7*mm))
-    for line in wrap_text_lines(address, max(38, approx_chars)):
+    for line in wrap_text_lines(address or "", max(38, approx_chars)):
         y -= 8*mm
         c.drawString(margin_x, y, line)
 
     # SONRA TELEFON (daha küçük)
     y -= 8*mm
     c.setFont(FONT_NAME, 16)
-    c.drawString(margin_x, y, f"Tel: {phone}")
+    c.drawString(margin_x, y, f"Tel: {phone or ''}")
     y -= 8*mm
 
     # GÖNDERİCİ — büyük ve ferah
@@ -236,10 +207,10 @@ def build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, badge_scale):
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(W, H))
     for r in rows:
-        pay_short = r["final_pay"]
+        pay_short = r.get("final_pay", "")
         draw_label_on_canvas(
             c, W, H,
-            r["name"], r["phone"], r["address"],
+            r.get("name"), r.get("phone"), r.get("address"),
             sender_block, pay_short,
             logo_bytes=logo_bytes,
             badge_scale=badge_scale
@@ -305,6 +276,15 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short,
     <div class="s-label">Gönderici</div>
     <div class="s-body">{sender_block}</div>
   </div>
+<script>
+  // otomatik yazdırma - bu HTML içeriği components.html ile açıldığında çalışır
+  window.onload = function() {{
+    try {{
+      window.focus();
+      setTimeout(function(){{ window.print(); }}, 120);
+    }} catch(e) {{ console.error(e); }}
+  }};
+</script>
 </body>
 </html>
 """
@@ -331,13 +311,13 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_sca
 
         page = f"""
 <div class="frame page">
-  <div class="pill">{r['final_pay']}</div>
+  <div class="pill">{r.get('final_pay','')}</div>
   <div class="head">{logo_html}</div>
 
   <div class="sec">ALICI</div>
-  <div class="r-name">{r['name']}</div>
-  <div class="r-addr">{r['address']}</div>
-  <div class="r-phone">Tel: {r['phone']}</div>
+  <div class="r-name">{r.get('name','')}</div>
+  <div class="r-addr">{r.get('address','')}</div>
+  <div class="r-phone">Tel: {r.get('phone','')}</div>
 
   <div class="s-label">Gönderici</div>
   <div class="s-body">{sender_block}</div>
@@ -373,6 +353,14 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_sca
 </head>
 <body>
   {''.join(pages)}
+<script>
+  window.onload = function() {{
+    try {{
+      window.focus();
+      setTimeout(function(){{ window.print(); }}, 120);
+    }} catch(e) {{ console.error(e); }}
+  }};
+</script>
 </body>
 </html>
 """
@@ -387,17 +375,16 @@ with st.sidebar:
     st.subheader("Alıcı Bilgileri (Excel’den kopyala–yapıştır)")
     st.caption("Bu modda 19 sütundan **I=Alıcı Adı (9)**, **Q=Adres (17)**, **R=Telefon (18)**, **S=Kargo Ödemesi (ÜA/ÜG) (19)** okunur.")
     raw = st.text_area(
-        "Excel’den satırları kopyalayıp buraya yapıştır. Ayraç genelde TAB olur.",
-        height=240,
-        placeholder="Excel satırlarını (19 sütun) kopyalayıp yapıştırın. I/Q/R/S otomatik alınır.",
+        "Excel’den satırları kopyalayıp buraya yapıştır. Sistem yalnızca satır başındaki tarih (dd.mm.yyyy) ile bölme yapar.",
+        height=300,
+        placeholder="Excel satırlarını (19 sütun) kopyalayıp yapıştırın. Sistem tarih (07.10.2025) gördüğü yerde yeni gönderi başlatacaktır.",
     )
-    sep = st.radio("Ayraç", ["TAB", ";", ","], index=0, horizontal=True)
-    sep_char = "\t" if sep == "TAB" else (";" if sep == ";" else ",")
+    st.markdown("**Not:** `;` `,` veya tab karakterleri artık yeni kayıt üretmez; tarih ile bölme esas alınır.")
 
 st.markdown(
     "- **Varsayılan Boyut:** A4 (menüden A5 ya da 100×150 seçebilirsin).\n"
     "- **Excel Modu (güncel):** I=Ad, Q=Adres, R=Telefon, S=ÜA/ÜG.\n"
-    "- **Güvenli Yazdır:** Yazdırma penceresi yeni sekmede güvenle açılır."
+    "- **Güvenli Yazdır:** Yazdırma penceresi, buton tıklamasıyla güvenle açılır."
 )
 
 with st.expander("🔧 Tasarım & Seçenekler"):
@@ -408,43 +395,82 @@ with st.expander("🔧 Tasarım & Seçenekler"):
     with colB:
         badge_scale = st.slider("Ücret rozeti ölçeği (1×–2×)", 1.0, 2.0, 1.7, 0.1)
 
+# -------------------------
 # Satırları parse et — I, Q, R, S  (I=9, Q=17, R=18, S=19)
-import re
-
+# -------------------------
 rows = []
+
+def extract_phone_from_text(s: str):
+    # Basit telefon regex: +90 532 ... veya 0532... veya 0 532 ...
+    m = re.search(r'(\+?\d[\d\s\-\(\)]{6,}\d)', s)
+    if m:
+        return m.group(1).strip()
+    return ""
+
 if raw:
-    # sadece tarihleri yeni satır başlangıcı olarak kabul et
-    cleaned_raw = re.sub(r'(\d{2}\.\d{2}\.\d{4})', r'\n\1', raw)
+    # normalize line endings
+    raw_norm = raw.replace("\r\n", "\n").replace("\r", "\n")
 
-    for line in cleaned_raw.splitlines():
-        if not line.strip():
-            continue
+    # 1) Tarih bazlı bölme: sadece satır başında görülen dd.mm.yyyy formatını kullan
+    # (?m) çok satırlı - ^ satır başı demektir
+    shipments = re.split(r'(?m)(?=^\s*\d{2}\.\d{2}\.\d{4})', raw_norm)
+    shipments = [s.strip() for s in shipments if s.strip()]
 
-        # Artık ; veya , ayırıcı olarak kullanılmayacak
-        # Her şeyi tek satır olarak değerlendiriyoruz
-        parts = line.split('\t')  # Excel'den kopyalanan veriler genelde tab (\t) içerir
+    # 2) Her shipment bloğundan kolonları çıkart
+    for block in shipments:
+        # block genelde tek bir satır (çünkü tarihle bölündü) - ama yine de satırların birleştiğini kabul et
+        # Öncelikle tab ile bölmeyi dene
+        parts = [p.strip() for p in re.split(r'\t', block)]
 
-        # Eksik sütun varsa tamamla
+        # Eğer tab ile 19 kolona erişemediyse fallback: 2+ boşlukları ayır (çoğu Excel copy-da sekmeler olur, ama yedek)
         if len(parts) < 19:
-            parts += [""] * (19 - len(parts))
+            parts2 = [p.strip() for p in re.split(r'\s{2,}', block)]
+            if len(parts2) >= len(parts):
+                parts = parts2
 
-        name_cell  = parts[8]   # I (9)  -> Alıcı Adı
-        addr_cell  = parts[16]  # Q (17) -> Adres
-        phone_cell = parts[17]  # R (18) -> Telefon
-        pay_cell   = parts[18]  # S (19) -> Ücret (ÜA/ÜG)
+        # Eğer hâlâ azsa, yapacağımız: tüm blok adres olarak kabul et ve telefona regex ile bak
+        if len(parts) < 19:
+            # Telefonu ayıkla
+            phone_guess = extract_phone_from_text(block)
+            # Adı bulmaya çalış: genelde 9. kolon I (index 8) olduğu için adı tahmin edemeyiz
+            # Bu durumda ad = ilk kelime grubu (kısıtlı) — ama daha güvenlisi: tüm blok "address"
+            name_cell = ""
+            addr_cell = block
+            phone_cell = phone_guess
+            pay_cell = ""
+        else:
+            name_cell = parts[8]   # I (9)  -> Alıcı Adı
+            addr_cell = parts[16]  # Q (17) -> Adres
+            phone_cell = parts[17] # R (18) -> Telefon
+            pay_cell = parts[18]   # S (19) -> Ücret (ÜA/ÜG)
 
         parsed_pay = normalize_pay_token(pay_cell) if pay_cell else None
 
-        if any([name_cell, phone_cell, addr_cell, parsed_pay]):
-            rows.append(
-                {
-                    "name": name_cell,
-                    "phone": phone_cell,
-                    "address": addr_cell,
-                    "parsed_pay": parsed_pay,
-                }
-            )
+        # Trim and normalize
+        name_cell = (name_cell or "").strip()
+        addr_cell = (addr_cell or "").strip()
+        phone_cell = (phone_cell or "").strip()
 
+        # Eğer phone boşsa, deneme amaçlı block'tan çıkar
+        if not phone_cell:
+            phone_guess = extract_phone_from_text(block)
+            if phone_guess:
+                phone_cell = phone_guess
+
+        # Eğer adres hücresinde çoklu satır \n varsa, tek satır haline getir (çift tırnak gibi bozukları düzelt)
+        addr_cell = re.sub(r'\s*\n\s*', ' ', addr_cell).strip()
+
+        if any([name_cell, phone_cell, addr_cell, parsed_pay]):
+            rows.append({
+                "name": name_cell,
+                "phone": phone_cell,
+                "address": addr_cell,
+                "parsed_pay": parsed_pay,
+            })
+
+# -------------------------
+# UI: Son kontroller ve butonlar
+# -------------------------
 if not rows:
     st.info("Sağda butonların gelmesi için soldaki kutuya Excel’den en az 1 satır yapıştır.")
 else:
@@ -455,10 +481,10 @@ else:
 
     # --- Kartlarda son kontrol + tekli butonlar ---
     for i, r in enumerate(rows, start=1):
-        with st.container(border=True):
-            st.markdown(f"**#{i} – {r['name']}**")
-            if r.get("address"): st.write(f"**Adres:** {r['address']}")
-            if r.get("phone"):   st.write(f"**Telefon:** {r['phone']}")
+        with st.container():
+            st.markdown(f"**#{i} – {r.get('name','(isim yok)')}**")
+            if r.get("address"): st.write(f"**Adres:** {r.get('address')}")
+            if r.get("phone"):   st.write(f"**Telefon:** {r.get('phone')}")
 
             # Radyo varsayılanı: satırdan geldiyse onu seç
             default_index = 0  # ÜA
@@ -478,29 +504,35 @@ else:
 
             # 1) Tek PDF indir
             with col1:
-                pdf_bytes = build_single_label_pdf(
-                    page_size_name,
-                    recipient_name=r["name"], phone=r["phone"], address=r["address"],
-                    sender_block=sender_block, pay_short=pay_short,
-                    logo_bytes=logo_bytes, badge_scale=badge_scale
-                )
-                file_name = f"etiket_{sanitize_filename(r['name'])}.pdf"
-                st.download_button(
-                    label="📄 PDF indir (tek sayfa)",
-                    data=pdf_bytes,
-                    file_name=file_name,
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key=f"dl_{i}",
-                )
+                try:
+                    pdf_bytes = build_single_label_pdf(
+                        page_size_name,
+                        recipient_name=r.get("name"), phone=r.get("phone"), address=r.get("address"),
+                        sender_block=sender_block, pay_short=pay_short,
+                        logo_bytes=logo_bytes, badge_scale=badge_scale
+                    )
+                    file_name = f"etiket_{sanitize_filename(r.get('name') or 'alici')}.pdf"
+                    st.download_button(
+                        label="📄 PDF indir (tek sayfa)",
+                        data=pdf_bytes,
+                        file_name=file_name,
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key=f"dl_{i}",
+                    )
+                except Exception as e:
+                    st.error(f"PDF oluşturulamadı: {e}")
 
             # 2) Tek yazdır (güvenli yeni pencere)
             with col2:
+                # create a small unique HTML and render via components.html when button clicked
                 if st.button("🖨️ Tarayıcıdan yazdır (tek sayfa)", key=f"print_{i}", use_container_width=True):
                     html = make_print_html(
-                        r["name"], r["phone"], r["address"], sender_block, pay_short,
+                        r.get("name",""), r.get("phone",""), r.get("address",""),
+                        sender_block, pay_short,
                         page_size_name=page_size_name, logo_b64=logo_b64, badge_scale=badge_scale
                     )
+                    # components.html run in the same user interaction - reduces popup blocking
                     open_print_window_with_html(html)
 
     # --- Toplu işlemler ---
@@ -508,17 +540,23 @@ else:
     colA, colB = st.columns([1,1])
 
     with colA:
-        bulk_pdf = build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, badge_scale)
-        st.download_button(
-            label="📦 Toplu PDF indir (çok sayfa)",
-            data=bulk_pdf,
-            file_name="etiketler_toplu.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-            key="bulk_pdf_dl",
-        )
+        try:
+            bulk_pdf = build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, badge_scale)
+            st.download_button(
+                label="📦 Toplu PDF indir (çok sayfa)",
+                data=bulk_pdf,
+                file_name="etiketler_toplu.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="bulk_pdf_dl",
+            )
+        except Exception as e:
+            st.error(f"Toplu PDF oluşturulamadı: {e}")
 
     with colB:
         if st.button("🖨️ Toplu yazdır (tarayıcı)", use_container_width=True):
-            bulk_html = make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_scale)
-            open_print_window_with_html(bulk_html)
+            try:
+                bulk_html = make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_scale)
+                open_print_window_with_html(bulk_html)
+            except Exception as e:
+                st.error(f"Toplu yazdırma başarısız: {e}")

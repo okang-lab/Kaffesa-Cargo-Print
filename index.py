@@ -409,14 +409,22 @@ with st.expander("🔧 Tasarım & Seçenekler"):
         badge_scale = st.slider("Ücret rozeti ölçeği (1×–2×)", 1.0, 2.0, 1.7, 0.1)
 
 # Satırları parse et — I, Q, R, S  (I=9, Q=17, R=18, S=19)
+import re
+
 rows = []
 if raw:
-    # Tarihi satır başı olarak algıla
+    # sadece tarihleri yeni satır başlangıcı olarak kabul et
     cleaned_raw = re.sub(r'(\d{2}\.\d{2}\.\d{4})', r'\n\1', raw)
+
     for line in cleaned_raw.splitlines():
         if not line.strip():
             continue
-        parts = [p.strip() for p in line.split(sep_char)]
+
+        # Artık ; veya , ayırıcı olarak kullanılmayacak
+        # Her şeyi tek satır olarak değerlendiriyoruz
+        parts = line.split('\t')  # Excel'den kopyalanan veriler genelde tab (\t) içerir
+
+        # Eksik sütun varsa tamamla
         if len(parts) < 19:
             parts += [""] * (19 - len(parts))
 

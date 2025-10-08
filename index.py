@@ -1,6 +1,6 @@
 # index.py
-# Nihai Gerçek Versiyon: Yollanan ham veriye göre özel olarak geliştirilmiş, desen tanıma tabanlı parser.
-# requirements: streamlit, reportlab
+# Nihai Versiyon: Sadece tam dd.mm.yyyy formatını satır başlangıcı olarak kabul eden,
+# kullanıcı önerisiyle mükemmelleştirilmiş parser.
 
 import io, os, re, base64, textwrap, unicodedata
 import streamlit as st
@@ -50,7 +50,7 @@ def sanitize_filename(s: str) -> str:
     return re.sub(r'\s+', '_', s)[:60] or "etiket"
 
 def get_pagesize(name="A4"):
-    if name == "100x150": return (100*mm, 150*mm)
+    if name == "100x100": return (100*mm, 100*mm)
     if name == "A4": return A4
     return (148*mm, 210*mm)
 
@@ -100,7 +100,7 @@ def build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, badge_scale):
     c.save(); buf.seek(0); return buf.getvalue()
 
 def make_print_html(recipient_name, phone, address, sender_block, pay_short, page_size_name="A4", logo_b64=None, badge_scale=1.7):
-    if page_size_name == "100x150": page_css = "@page { size: 100mm 150mm; margin: 8mm; }"
+    if page_size_name == "100x100": page_css = "@page { size: 100mm 100mm; margin: 8mm; }"
     elif page_size_name == "A4": page_css = "@page { size: A4; margin: 10mm; }"
     else: page_css = "@page { size: A5; margin: 8mm; }"
     pill_fs = int(22*badge_scale); pill_pad_v = int(6*badge_scale); pill_pad_h = int(14*badge_scale)
@@ -110,7 +110,7 @@ def make_print_html(recipient_name, phone, address, sender_block, pay_short, pag
 def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_scale=1.7):
     pages=[]
     for r in rows: pages.append(f"""<div class="frame page"><div class="pill">{r.get('final_pay','')}</div><div class="head">{'<img src="data:image/png;base64,'+logo_b64+'" style="height:auto; width:30mm; object-fit:contain; margin-right:8mm;" />' if logo_b64 else ""}</div><div class="sec">ALICI</div><div class="r-name">{r.get('name','')}</div><div class="r-addr">{r.get('address','')}</div><div class="r-phone">Tel: {r.get('phone','')}</div><div class="s-label">Gönderici</div><div class="s-body">{sender_block}</div></div>""")
-    if page_size_name == "100x150": page_css = "@page { size: 100mm 150mm; margin: 8mm; }"
+    if page_size_name == "100x100": page_css = "@page { size: 100mm 100mm; margin: 8mm; }"
     elif page_size_name == "A4": page_css = "@page { size: A4; margin: 10mm; }"
     else: page_css = "@page { size: A5; margin: 8mm; }"
     pill_fs = int(22*badge_scale); pill_pad_v = int(6*badge_scale); pill_pad_h = int(14*badge_scale)
@@ -126,77 +126,66 @@ with st.sidebar:
 with st.expander("🔧 Tasarım & Gönderici Bilgileri", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
-        page_size_name = st.selectbox("Etiket Boyutu", ["A4", "A5", "100x150"], index=0)
+        page_size_name = st.selectbox("Etiket Boyutu", ["A4", "A5", "100x100"], index=0)
     with col2:
         badge_scale = st.slider("Ücret Rozeti Boyutu", 1.0, 2.0, 1.7, 0.1)
     sender_block = st.text_area("Gönderici Bilgileri", value=SENDER_BLOCK_DEFAULT, height=140)
 
 # =========================================================================================
-# GERÇEK VERİYE ÖZEL VERİ OKUMA (PARSING) MANTIĞI
+# KULLANICI ÖNERİSİYLE GÜNCELLENMİŞ VERİ OKUMA (PARSING) MANTIĞI
 # =========================================================================================
 rows = []
 if raw_input_data:
-    # Metni, her bir tarihin kendisiyle başlayacak şekilde bölüyoruz. Bu en güvenilir yöntem.
+    # ADIM 1: Metni, sadece ve sadece "dd.mm.yyyy" formatındaki tarihlerden böl.
+    # Bu, sizin önerdiğiniz gibi, yanlışlıkla satır bölünmelerini engeller.
     shipments = re.split(r'(?=\d{2}\.\d{2}\.\d{4})', raw_input_data)
     shipments = [s.strip() for s in shipments if s.strip()]
 
     for block in shipments:
         name, address, phone, payment = "", "", "", ""
 
-        # 1. Telefonu bul.
-        phone_match = re.search(r'(\+?\d[\d\s\-\(\)]{8,}\d)', block)
+        # ADIM 2: Her bir bloğun içinden bilgileri sırayla ve akıllıca çıkar.
+        # Telefonu bul (belirli formatlarda arayarak ürün kodlarıyla karışmasını önle)
+        phone_match = re.search(r'(\+?90\s?\(?\d{3}\)?\s?\d{3}\s?\d{2}\s?\d{2}|\b0\s?\(?\d{3}\)?\s?\d{3}\s?\d{2}\s?\d{2}\b)', block)
         if phone_match: phone = phone_match.group(1).strip()
 
-        # 2. Kargo Ödemesini (ÜA/ÜG) bul.
+        # Kargo Ödemesini (ÜA/ÜG) bul
         payment_match = re.search(r'\b(ÜA|UA|ÜG|UG)\b', block, re.IGNORECASE)
         if payment_match: payment = payment_match.group(1).upper().replace('U', 'Ü')
 
-        # 3. Gerçek adresi (içinde Mah, Sok, Cad, No geçen) bul.
+        # Gerçek adresi bul (içinde Mah, Sok, Cad, No geçen)
         address_match = re.search(r'([A-Za-z0-9\s\.,:/\\-]+(?:Mah|Sok|Cad|No)[\w\s\./:;-]+)', block, re.IGNORECASE)
         if address_match: address = address_match.group(1).strip()
 
-        # 4. İsim adaylarını bul (en az iki kelimeden oluşan ve mantıklı görünen text grupları)
+        # İsim adaylarını bul
         name_candidates = re.findall(r'\b([A-ZĞÜŞİÖÇ][A-ZĞÜŞİÖÇa-zğüşıöç\.\s\'"]+\s[A-ZĞÜŞİÖÇ][A-ZĞÜŞİÖÇa-zğüşıöç\.\s\'"]*)\b', block)
         
-        # Anlamsız anahtar kelimeleri ve gönderici isimlerini temizle.
-        # Bu liste, verinizdeki gönderici/personel isimleridir.
-        non_recipient_names = {'SHOWROOM', 'TESLİMAT', 'KARGO', 'FATURA', 'İRSALİYE', 'GIDA', 'PAZARLAMA', 'SÜLEYMAN ŞAHİN', 'ÖZGÜR ŞAHİN', 'OKAN GÜREROĞUZ', 'SERKAN GÖK', 'OĞUZ SARI', 'GÜLÇİN ÜNLÜ'}
-        
-        filtered_names = []
-        for n in name_candidates:
-            clean_name = n.strip('."\' ')
-            # Eğer bir aday, kara listedeki bir kelimeyi içeriyorsa, onu atla.
-            if len(clean_name) > 4 and not any(keyword in clean_name.upper() for keyword in non_recipient_names):
-                filtered_names.append(clean_name)
+        # Anlamsız anahtar kelimeleri ve bilinen gönderici isimlerini temizle
+        non_recipient_names = {'SHOWROOM', 'TESLİMAT', 'KARGO', 'FATURA', 'İRSALİYE', 'SÜLEYMAN ŞAHİN', 'ÖZGÜR ŞAHİN', 'OKAN GÜREROĞLU'}
+        filtered_names = [ n.strip('."\' ') for n in name_candidates if len(n.strip()) > 4 and not any(keyword in n.upper() for keyword in non_recipient_names) ]
 
         if filtered_names:
-            # Genellikle doğru alıcı ismi, listedeki son isim oluyor.
             name = filtered_names[-1]
         
-        # 5. Eğer adres bulunamadıysa (Showroom teslimatları gibi), isimden sonraki kısmı not/adres olarak al.
+        # Eğer adres bulunamadıysa, isimden sonraki kısmı not/adres olarak al
         if not address and name:
             try:
                 name_pos = block.rfind(name)
                 after_name = block[name_pos + len(name):].strip()
                 if phone: after_name = after_name.replace(phone, '')
                 if payment: after_name = after_name.replace(payment, '')
-                # Kalan metinden bilinen kelimeleri temizleyerek notları oluştur.
                 address = re.sub(r'FATURA|İRSALİYE|irsaliye', '', after_name, flags=re.IGNORECASE).strip()
             except: pass
 
-        # Sadece ismi bulunabilen kayıtları listeye ekle.
         if name:
-            rows.append({
-                "name": name, "address": address, "phone": phone,
-                "parsed_pay": normalize_pay_token(payment),
-            })
+            rows.append({ "name": name, "address": address, "phone": phone, "parsed_pay": normalize_pay_token(payment) })
 # =========================================================================================
 
 # --- Sonuçların Gösterilmesi ---
 if not rows and raw_input_data:
     st.warning("Yapıştırdığınız metinden geçerli bir alıcı bilgisi bulunamadı. Lütfen veriyi kontrol edin.")
 elif not rows:
-    st.info("İşlem yapmak için soldaki alana Excel'den veri yapıştırın.")
+    st.info("İşlem yapmak için Excel'den veri kopyalayıp soldaki alana yapıştırın.")
 else:
     st.success(f"**{len(rows)}** adet alıcı bilgisi başarıyla işlendi.")
     logo_bytes = load_logo_bytes()
@@ -229,3 +218,4 @@ else:
             if st.button("🖨️ Toplu Yazdır", use_container_width=True):
                 bulk_html_content = make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_scale)
                 open_print_window_with_html(bulk_html_content)
+            

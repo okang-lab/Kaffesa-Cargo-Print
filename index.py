@@ -408,33 +408,34 @@ with st.expander("🔧 Tasarım & Seçenekler"):
     with colB:
         badge_scale = st.slider("Ücret rozeti ölçeği (1×–2×)", 1.0, 2.0, 1.7, 0.1)
 
-# -------------------------
 # Satırları parse et — I, Q, R, S  (I=9, Q=17, R=18, S=19)
-# -------------------------
 rows = []
-for line in raw.splitlines():
-    if not line.strip():
-        continue
-    parts = [p.strip() for p in line.split(sep_char)]
-    if len(parts) < 19:
-        parts += [""] * (19 - len(parts))
+if raw:
+    # Tarihi satır başı olarak algıla
+    cleaned_raw = re.sub(r'(\d{2}\.\d{2}\.\d{4})', r'\n\1', raw)
+    for line in cleaned_raw.splitlines():
+        if not line.strip():
+            continue
+        parts = [p.strip() for p in line.split(sep_char)]
+        if len(parts) < 19:
+            parts += [""] * (19 - len(parts))
 
-    name_cell  = parts[8]   # I (9)  -> Alıcı Adı
-    addr_cell  = parts[16]  # Q (17) -> Adres
-    phone_cell = parts[17]  # R (18) -> Telefon
-    pay_cell   = parts[18]  # S (19) -> Ücret (ÜA/ÜG)
+        name_cell  = parts[8]   # I (9)  -> Alıcı Adı
+        addr_cell  = parts[16]  # Q (17) -> Adres
+        phone_cell = parts[17]  # R (18) -> Telefon
+        pay_cell   = parts[18]  # S (19) -> Ücret (ÜA/ÜG)
 
-    parsed_pay = normalize_pay_token(pay_cell) if pay_cell else None
+        parsed_pay = normalize_pay_token(pay_cell) if pay_cell else None
 
-    if any([name_cell, phone_cell, addr_cell, parsed_pay]):
-        rows.append(
-            {
-                "name": name_cell,
-                "phone": phone_cell,
-                "address": addr_cell,
-                "parsed_pay": parsed_pay,
-            }
-        )
+        if any([name_cell, phone_cell, addr_cell, parsed_pay]):
+            rows.append(
+                {
+                    "name": name_cell,
+                    "phone": phone_cell,
+                    "address": addr_cell,
+                    "parsed_pay": parsed_pay,
+                }
+            )
 
 if not rows:
     st.info("Sağda butonların gelmesi için soldaki kutuya Excel’den en az 1 satır yapıştır.")

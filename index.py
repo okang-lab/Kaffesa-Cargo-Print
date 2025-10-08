@@ -1,8 +1,9 @@
 # index.py
-# Final Versiyon (3. Revizyon): Gelen ham veriye özel, akıllı regex tabanlı parser.
-# requirements: streamlit, reportlab
+# Nihai Versiyon: PANDAS tabanlı, sekmeyle ayrılmış sütunları %100 güvenilir okuma.
+# requirements: streamlit, reportlab, pandas
 
 import io, os, re, base64, textwrap, unicodedata
+import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from reportlab.lib.pagesizes import A4
@@ -17,6 +18,13 @@ from reportlab.lib.utils import ImageReader
 # -------------------------
 st.set_page_config(page_title="Kargo Etiket Oluşturucu", layout="wide")
 
+# SÜTUN NUMARALARI (Excel A=0, B=1... diye sayılır)
+COL_NAME = 8      # I sütunu
+COL_ADDRESS = 16  # Q sütunu
+COL_PHONE = 17    # R sütunu
+COL_PAYMENT = 18  # S sütunu
+MIN_COLUMN_COUNT = 19 # Bir satırın geçerli olması için en az S sütununa kadar veri olmalı
+
 SENDER_BLOCK_DEFAULT = (
     "KAFFESA GIDA SANAYİ VE DIŞ TİCARET ANONİM ŞİRKETİ\n"
     "Adres: BALMUMCU MAH. BARBAROS BULVARI İBA BLOKLARI, 34/A\n"
@@ -27,12 +35,11 @@ SENDER_BLOCK_DEFAULT = (
 # --- Font ve Logo Yükleme ---
 FONT_PATH = "DejaVuSans.ttf"
 if os.path.isfile(FONT_PATH):
-    try:
-        pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_PATH))
-        FONT_NAME = "DejaVuSans"
+    try: pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_PATH)); FONT_NAME = "DejaVuSans"
     except Exception: FONT_NAME = "Helvetica"
 else: FONT_NAME = "Helvetica"
 
+@st.cache_data
 def load_logo_bytes():
     try:
         with open("logo.png", "rb") as f: return f.read()
@@ -47,11 +54,8 @@ def normalize_pay_token(token: str) -> str | None:
     return None
 
 def sanitize_filename(s: str) -> str:
-    s = re.sub(r"[^\w\s-]", "", s, flags=re.UNICODE).strip()
-    return re.sub(r"\s+", "_", s)[:60] or "etiket"
-
-def wrap_text_lines(text: str, max_chars: int):
-    return textwrap.wrap(text or "", width=max_chars, replace_whitespace=False, drop_whitespace=True)
+    s = re.sub(r'[^\w\s-]', '', s, flags=re.UNICODE).strip()
+    return re.sub(r'\s+', '_', s)[:60] or "etiket"
 
 def get_pagesize(name="A4"):
     if name == "100x150": return (100*mm, 150*mm)
@@ -61,7 +65,7 @@ def get_pagesize(name="A4"):
 def open_print_window_with_html(html: str):
     components.html(html, height=0, scrolling=False)
 
-# --- Çizim ve HTML Fonksiyonları (Tam ve Çalışır Halde) ---
+# --- Çizim ve HTML Fonksiyonları ---
 def draw_label_on_canvas(c: canvas.Canvas, W, H, recipient_name, phone, address, sender_block, pay_short, logo_bytes=None, badge_scale=1.7):
     margin_x, margin_y = 10*mm, 10*mm; usable_w = W - 2*margin_x
     scale = max(1.0, min(2.0, float(badge_scale))); c.setFillColorRGB(0.82, 0, 0)
@@ -83,7 +87,7 @@ def draw_label_on_canvas(c: canvas.Canvas, W, H, recipient_name, phone, address,
     c.setFont(FONT_NAME, 15); c.drawString(margin_x, y, "ALICI"); y -= 9*mm
     c.setFont(FONT_NAME, 28); c.drawString(margin_x, y, f"{recipient_name or ''}"); y -= 10*mm
     c.setFont(FONT_NAME, 18); approx_chars = int(usable_w / (3.7*mm))
-    for line in wrap_text_lines(address or "", max(38, approx_chars)): y -= 8*mm; c.drawString(margin_x, y, line)
+    for line in textwrap.wrap(address or "", width=max(45, approx_chars)): y -= 8*mm; c.drawString(margin_x, y, line)
     y -= 8*mm; c.setFont(FONT_NAME, 16); c.drawString(margin_x, y, f"Tel: {phone or ''}")
     y -= 12*mm; c.setFont(FONT_NAME, 16); c.drawString(margin_x, y, "Gönderici"); y -= 8*mm
     c.setFont(FONT_NAME, 14)
@@ -104,7 +108,6 @@ def build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, badge_scale):
     c.save(); buf.seek(0); return buf.getvalue()
 
 def make_print_html(recipient_name, phone, address, sender_block, pay_short, page_size_name="A4", logo_b64=None, badge_scale=1.7):
-    # Bu fonksiyon tam ve çalışır halde.
     if page_size_name == "100x150": page_css = "@page { size: 100mm 150mm; margin: 8mm; }"
     elif page_size_name == "A4": page_css = "@page { size: A4; margin: 10mm; }"
     else: page_css = "@page { size: A5; margin: 8mm; }"
@@ -125,8 +128,13 @@ def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_sca
 st.title("📦 Kargo Etiket Oluşturucu")
 
 with st.sidebar:
-    st.subheader("Excel'den Kopyalanan Veri")
-    raw_input_data = st.text_area("Buraya yapıştırın:", height=350)
+    st.subheader("Excel Verisi")
+    st.info("Excel'de satırın tamamını seçip (örn: satır numarasına tıklayarak) kopyalayın ve buraya yapıştırın.")
+    raw_input_data = st.text_area(
+        "Yapıştırılacak Alan:",
+        height=350,
+        key="raw_data_input",
+    )
 
 with st.expander("🔧 Tasarım & Gönderici Bilgileri", expanded=True):
     col1, col2 = st.columns(2)
@@ -137,79 +145,58 @@ with st.expander("🔧 Tasarım & Gönderici Bilgileri", expanded=True):
     sender_block = st.text_area("Gönderici Bilgileri", value=SENDER_BLOCK_DEFAULT, height=140)
 
 # =========================================================================================
-# YENİ ve EN SAĞLAM VERİ OKUMA (PARSING) MANTIĞI
+# GÜVENİLİR VERİ OKUMA (PARSING) MANTIĞI
 # =========================================================================================
 rows = []
+error_lines = 0
 if raw_input_data:
-    # Metni, her bir tarihin kendisiyle başlayacak şekilde bölüyoruz. Bu, 30'a 31 hatasını çözer.
-    shipments = re.split(r'(?=\d{2}\.\d{2}\.\d{4})', raw_input_data)
-    shipments = [s.strip() for s in shipments if s.strip()]
+    try:
+        # Yapıştırılan metni, Pandas kütüphanesiyle doğrudan bir tablo olarak oku.
+        # `sep='\t'` parametresi, sütunların "Sekme" (Tab) karakteriyle ayrıldığını belirtir.
+        df = pd.read_csv(io.StringIO(raw_input_data), sep='\t', header=None, engine='python', on_bad_lines='skip')
 
-    for block in shipments:
-        temp_block = block
-        name, address, phone, payment = "", "", "", ""
+        for index, row in df.iterrows():
+            # Yeterli sütun var mı diye kontrol et
+            if len(row) < MIN_COLUMN_COUNT:
+                error_lines += 1
+                continue
 
-        # 1. Telefonu bul ve metinden çıkar.
-        phone_match = re.search(r'(\+?\d[\d\s\-\(\)]{8,}\d)', temp_block)
-        if phone_match:
-            phone = phone_match.group(1).strip()
-            temp_block = temp_block.replace(phone, ' ')
+            # İsim sütunu boş mu diye kontrol et (en önemli kriter)
+            name_cell = str(row[COL_NAME]) if pd.notna(row[COL_NAME]) else ""
+            if name_cell.strip():
+                rows.append({
+                    "name": name_cell.strip(),
+                    "address": str(row[COL_ADDRESS]) if pd.notna(row[COL_ADDRESS]) else "",
+                    "phone": str(row[COL_PHONE]) if pd.notna(row[COL_PHONE]) else "",
+                    "parsed_pay": normalize_pay_token(str(row[COL_PAYMENT]) if pd.notna(row[COL_PAYMENT]) else ""),
+                })
+            else:
+                # İsim hücresi boşsa, bu satırı geçersiz say
+                error_lines += 1
 
-        # 2. Kargo Ödemesini (ÜA/ÜG) bul ve metinden çıkar.
-        payment_match = re.search(r'\b(ÜA|UA|ÜG|UG)\b', temp_block, re.IGNORECASE)
-        if payment_match:
-            payment = payment_match.group(1).upper().replace('U', 'Ü')
-            # Metinden silerken orijinal halini kullanalım
-            temp_block = temp_block.replace(payment_match.group(0), ' ')
-
-        # 3. Adresi bul (içinde Mah, Sok, Cad, No geçen en uzun metin parçası) ve metinden çıkar
-        address_match = re.search(r'([A-Za-z0-9\s\.,:/\\-]+(?:Mah|Sok|Cad|No)[\w\s\./:;-]+)', temp_block, re.IGNORECASE)
-        if address_match:
-            address = address_match.group(1).strip()
-            temp_block = temp_block.replace(address, ' ')
-
-        # 4. İsmi bul (FATURA/İRSALİYE'den önceki en mantıklı metin)
-        # Bu, verinizdeki en tutarlı desendi.
-        name_anchor_match = re.search(r'(.+?)(FATURA|İRSALİYE|irsaliye)', temp_block, re.DOTALL)
-        if name_anchor_match:
-            # Anchor'dan önceki kısımda, genellikle sonda yer alan ismi alıyoruz.
-            before_anchor = name_anchor_match.group(1)
-            potential_names = re.findall(r'([A-ZĞÜŞİÖÇ][a-zA-ZĞÜŞİÖÇ\s\."]+)', before_anchor)
-            if potential_names:
-                # Genellikle son bulunan isim doğru oluyor.
-                name = potential_names[-1].strip()
-                temp_block = temp_block.replace(name, ' ')
-
-        # 5. Eğer hala adres bulunamadıysa (Showroom teslimatları gibi), kalan metni adres/not olarak ata
-        if not address:
-            # Baştaki tarihi ve bilinen anahtar kelimeleri temizle
-            remaining_text = re.sub(r'^\d{2}\.\d{2}\.\d{4}\s*', '', temp_block)
-            remaining_text = re.sub(r'(SHOWROOM|TESLİMAT|FATURA|İRSALİYE|irsaliye|KARGO|UP)', '', remaining_text, flags=re.IGNORECASE)
-            address = re.sub(r'\s{2,}', ' ', remaining_text).strip() # Fazla boşlukları temizle
-
-        # Sadece ismi bulunabilen kayıtları ekle
-        if name:
-            rows.append({
-                "name": name,
-                "address": address,
-                "phone": phone,
-                "parsed_pay": normalize_pay_token(payment),
-            })
+    except Exception as e:
+        st.error(f"Veri okunurken bir hata oluştu: {e}")
+        st.warning("Lütfen veriyi Excel'den tüm satırı seçerek kopyaladığınızdan emin olun.")
 # =========================================================================================
 
 # --- Sonuçların Gösterilmesi ---
-if not rows:
+if not rows and not error_lines and raw_input_data:
+    st.warning("Yapıştırılan metinden geçerli bir alıcı bilgisi bulunamadı. Lütfen kopyalama yönteminizi kontrol edin.")
+elif not rows and not raw_input_data:
     st.info("İşlem yapmak için soldaki alana Excel'den veri yapıştırın.")
 else:
     st.success(f"{len(rows)} adet geçerli alıcı bilgisi bulundu.")
+    if error_lines > 0:
+        st.warning(f"{error_lines} satır (boş isim veya eksik sütun nedeniyle) atlandı.")
+    
     logo_bytes = load_logo_bytes()
     logo_b64 = base64.b64encode(logo_bytes).decode("ascii") if logo_bytes else None
 
     for i, r in enumerate(rows, start=1):
         with st.container():
-            st.markdown(f"---")
+            st.markdown("---")
             st.markdown(f"**#{i} – {r.get('name')}**")
-            st.markdown(f"**Adres/Notlar:** {r.get('address', 'N/A')}")
+            st.markdown(f"**Adres:** {r.get('address', 'N/A')}")
             st.markdown(f"**Telefon:** {r.get('phone', 'N/A')}")
             default_index = 1 if r.get("parsed_pay") == "ÜG" else 0
             pay_opt = st.radio("Kargo Ödemesi", ["ÜA (Ücret Alıcı)", "ÜG (Ücret Gönderici)"], index=default_index, horizontal=True, key=f"pay_{i}")
@@ -224,8 +211,7 @@ else:
                     open_print_window_with_html(html_content)
 
     if len(rows) > 1:
-        st.markdown("---")
-        st.subheader("Toplu İşlemler")
+        st.markdown("---"); st.subheader("Toplu İşlemler")
         t_col1, t_col2 = st.columns(2)
         with t_col1:
             bulk_pdf_bytes = build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, badge_scale)

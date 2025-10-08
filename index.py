@@ -1,9 +1,8 @@
 # index.py
-# Nihai Versiyon: PANDAS tabanlı, sekmeyle ayrılmış sütunları %100 güvenilir okuma.
-# requirements: streamlit, reportlab, pandas
+# Nihai Gerçek Versiyon: Yollanan ham veriye göre özel olarak geliştirilmiş, desen tanıma tabanlı parser.
+# requirements: streamlit, reportlab
 
 import io, os, re, base64, textwrap, unicodedata
-import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from reportlab.lib.pagesizes import A4
@@ -17,13 +16,6 @@ from reportlab.lib.utils import ImageReader
 # Ayarlar ve Sabitler
 # -------------------------
 st.set_page_config(page_title="Kargo Etiket Oluşturucu", layout="wide")
-
-# SÜTUN NUMARALARI (Excel A=0, B=1... diye sayılır)
-COL_NAME = 8      # I sütunu
-COL_ADDRESS = 16  # Q sütunu
-COL_PHONE = 17    # R sütunu
-COL_PAYMENT = 18  # S sütunu
-MIN_COLUMN_COUNT = 19 # Bir satırın geçerli olması için en az S sütununa kadar veri olmalı
 
 SENDER_BLOCK_DEFAULT = (
     "KAFFESA GIDA SANAYİ VE DIŞ TİCARET ANONİM ŞİRKETİ\n"
@@ -65,7 +57,7 @@ def get_pagesize(name="A4"):
 def open_print_window_with_html(html: str):
     components.html(html, height=0, scrolling=False)
 
-# --- Çizim ve HTML Fonksiyonları ---
+# --- Çizim ve HTML Fonksiyonları (Tam ve Çalışır Halde) ---
 def draw_label_on_canvas(c: canvas.Canvas, W, H, recipient_name, phone, address, sender_block, pay_short, logo_bytes=None, badge_scale=1.7):
     margin_x, margin_y = 10*mm, 10*mm; usable_w = W - 2*margin_x
     scale = max(1.0, min(2.0, float(badge_scale))); c.setFillColorRGB(0.82, 0, 0)
@@ -129,12 +121,7 @@ st.title("📦 Kargo Etiket Oluşturucu")
 
 with st.sidebar:
     st.subheader("Excel Verisi")
-    st.info("Excel'de satırın tamamını seçip (örn: satır numarasına tıklayarak) kopyalayın ve buraya yapıştırın.")
-    raw_input_data = st.text_area(
-        "Yapıştırılacak Alan:",
-        height=350,
-        key="raw_data_input",
-    )
+    raw_input_data = st.text_area("Kopyalanan satırları buraya yapıştırın:", height=350, key="raw_data_input")
 
 with st.expander("🔧 Tasarım & Gönderici Bilgileri", expanded=True):
     col1, col2 = st.columns(2)
@@ -145,58 +132,80 @@ with st.expander("🔧 Tasarım & Gönderici Bilgileri", expanded=True):
     sender_block = st.text_area("Gönderici Bilgileri", value=SENDER_BLOCK_DEFAULT, height=140)
 
 # =========================================================================================
-# GÜVENİLİR VERİ OKUMA (PARSING) MANTIĞI
+# GERÇEK VERİYE ÖZEL VERİ OKUMA (PARSING) MANTIĞI
 # =========================================================================================
 rows = []
-error_lines = 0
 if raw_input_data:
-    try:
-        # Yapıştırılan metni, Pandas kütüphanesiyle doğrudan bir tablo olarak oku.
-        # `sep='\t'` parametresi, sütunların "Sekme" (Tab) karakteriyle ayrıldığını belirtir.
-        df = pd.read_csv(io.StringIO(raw_input_data), sep='\t', header=None, engine='python', on_bad_lines='skip')
+    # Metni, her bir tarihin kendisiyle başlayacak şekilde bölüyoruz. Bu en güvenilir yöntem.
+    shipments = re.split(r'(?=\d{2}\.\d{2}\.\d{4})', raw_input_data)
+    shipments = [s.strip() for s in shipments if s.strip()]
 
-        for index, row in df.iterrows():
-            # Yeterli sütun var mı diye kontrol et
-            if len(row) < MIN_COLUMN_COUNT:
-                error_lines += 1
-                continue
+    for block in shipments:
+        name, address, phone, payment = "", "", "", ""
 
-            # İsim sütunu boş mu diye kontrol et (en önemli kriter)
-            name_cell = str(row[COL_NAME]) if pd.notna(row[COL_NAME]) else ""
-            if name_cell.strip():
-                rows.append({
-                    "name": name_cell.strip(),
-                    "address": str(row[COL_ADDRESS]) if pd.notna(row[COL_ADDRESS]) else "",
-                    "phone": str(row[COL_PHONE]) if pd.notna(row[COL_PHONE]) else "",
-                    "parsed_pay": normalize_pay_token(str(row[COL_PAYMENT]) if pd.notna(row[COL_PAYMENT]) else ""),
-                })
-            else:
-                # İsim hücresi boşsa, bu satırı geçersiz say
-                error_lines += 1
+        # 1. Telefonu bul.
+        phone_match = re.search(r'(\+?\d[\d\s\-\(\)]{8,}\d)', block)
+        if phone_match: phone = phone_match.group(1).strip()
 
-    except Exception as e:
-        st.error(f"Veri okunurken bir hata oluştu: {e}")
-        st.warning("Lütfen veriyi Excel'den tüm satırı seçerek kopyaladığınızdan emin olun.")
+        # 2. Kargo Ödemesini (ÜA/ÜG) bul.
+        payment_match = re.search(r'\b(ÜA|UA|ÜG|UG)\b', block, re.IGNORECASE)
+        if payment_match: payment = payment_match.group(1).upper().replace('U', 'Ü')
+
+        # 3. Gerçek adresi (içinde Mah, Sok, Cad, No geçen) bul.
+        address_match = re.search(r'([A-Za-z0-9\s\.,:/\\-]+(?:Mah|Sok|Cad|No)[\w\s\./:;-]+)', block, re.IGNORECASE)
+        if address_match: address = address_match.group(1).strip()
+
+        # 4. İsim adaylarını bul (en az iki kelimeden oluşan ve mantıklı görünen text grupları)
+        name_candidates = re.findall(r'\b([A-ZĞÜŞİÖÇ][A-ZĞÜŞİÖÇa-zğüşıöç\.\s\'"]+\s[A-ZĞÜŞİÖÇ][A-ZĞÜŞİÖÇa-zğüşıöç\.\s\'"]*)\b', block)
+        
+        # Anlamsız anahtar kelimeleri ve gönderici isimlerini temizle.
+        # Bu liste, verinizdeki gönderici/personel isimleridir.
+        non_recipient_names = {'SHOWROOM', 'TESLİMAT', 'KARGO', 'FATURA', 'İRSALİYE', 'GIDA', 'PAZARLAMA', 'SÜLEYMAN ŞAHİN', 'ÖZGÜR ŞAHİN', 'OKAN GÜREROĞUZ', 'SERKAN GÖK', 'OĞUZ SARI', 'GÜLÇİN ÜNLÜ'}
+        
+        filtered_names = []
+        for n in name_candidates:
+            clean_name = n.strip('."\' ')
+            # Eğer bir aday, kara listedeki bir kelimeyi içeriyorsa, onu atla.
+            if len(clean_name) > 4 and not any(keyword in clean_name.upper() for keyword in non_recipient_names):
+                filtered_names.append(clean_name)
+
+        if filtered_names:
+            # Genellikle doğru alıcı ismi, listedeki son isim oluyor.
+            name = filtered_names[-1]
+        
+        # 5. Eğer adres bulunamadıysa (Showroom teslimatları gibi), isimden sonraki kısmı not/adres olarak al.
+        if not address and name:
+            try:
+                name_pos = block.rfind(name)
+                after_name = block[name_pos + len(name):].strip()
+                if phone: after_name = after_name.replace(phone, '')
+                if payment: after_name = after_name.replace(payment, '')
+                # Kalan metinden bilinen kelimeleri temizleyerek notları oluştur.
+                address = re.sub(r'FATURA|İRSALİYE|irsaliye', '', after_name, flags=re.IGNORECASE).strip()
+            except: pass
+
+        # Sadece ismi bulunabilen kayıtları listeye ekle.
+        if name:
+            rows.append({
+                "name": name, "address": address, "phone": phone,
+                "parsed_pay": normalize_pay_token(payment),
+            })
 # =========================================================================================
 
 # --- Sonuçların Gösterilmesi ---
-if not rows and not error_lines and raw_input_data:
-    st.warning("Yapıştırılan metinden geçerli bir alıcı bilgisi bulunamadı. Lütfen kopyalama yönteminizi kontrol edin.")
-elif not rows and not raw_input_data:
+if not rows and raw_input_data:
+    st.warning("Yapıştırdığınız metinden geçerli bir alıcı bilgisi bulunamadı. Lütfen veriyi kontrol edin.")
+elif not rows:
     st.info("İşlem yapmak için soldaki alana Excel'den veri yapıştırın.")
 else:
-    st.success(f"{len(rows)} adet geçerli alıcı bilgisi bulundu.")
-    if error_lines > 0:
-        st.warning(f"{error_lines} satır (boş isim veya eksik sütun nedeniyle) atlandı.")
-    
+    st.success(f"**{len(rows)}** adet alıcı bilgisi başarıyla işlendi.")
     logo_bytes = load_logo_bytes()
     logo_b64 = base64.b64encode(logo_bytes).decode("ascii") if logo_bytes else None
 
     for i, r in enumerate(rows, start=1):
         with st.container():
-            st.markdown("---")
-            st.markdown(f"**#{i} – {r.get('name')}**")
-            st.markdown(f"**Adres:** {r.get('address', 'N/A')}")
+            st.markdown("---"); st.markdown(f"**#{i} – {r.get('name')}**")
+            st.markdown(f"**Adres/Notlar:** {r.get('address', 'N/A')}")
             st.markdown(f"**Telefon:** {r.get('phone', 'N/A')}")
             default_index = 1 if r.get("parsed_pay") == "ÜG" else 0
             pay_opt = st.radio("Kargo Ödemesi", ["ÜA (Ücret Alıcı)", "ÜG (Ücret Gönderici)"], index=default_index, horizontal=True, key=f"pay_{i}")

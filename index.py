@@ -1,5 +1,5 @@
 # index.py
-# Nihai Stabil Versiyon: Tüm özellikler entegre, sekmeli veri okuma, boş satır sorununu çözer
+# Nihai Stabil Versiyon: Düzgün (sekmeli) veriyi okur ve boş satır sorununu çözer.
 # requirements: streamlit, reportlab, pandas
 
 import io, os, re, base64, textwrap, unicodedata
@@ -18,50 +18,42 @@ from reportlab.lib.utils import ImageReader
 # -------------------------
 st.set_page_config(page_title="Kargo Etiket Oluşturucu", layout="wide")
 
-# SÜTUN NUMARALARI (Excel A=0, B=1... diye sayılır)
-COL_NAME = 8      # I sütunu
-COL_ADDRESS = 16  # Q sütunu
-COL_PHONE = 17    # R sütunu
-COL_PAYMENT = 18  # S sütunu
-MIN_COLUMN_COUNT = 19 # Bir satırın geçerli olması için en az S sütununa kadar veri olmalı
+# Excel sütunları
+COL_NAME = 8
+COL_ADDRESS = 16
+COL_PHONE = 17
+COL_PAYMENT = 18
+MIN_COLUMN_COUNT = 19
 
-# -------------------------
-# Gönderici Bilgileri
-# -------------------------
+# Gönderici bilgileri
 ISTANBUL_INFO = """KAFFESA GIDA SANAYİ VE DIŞ TİCARET ANONİM ŞİRKETİ
 Adres: BALMUMCU MAH. BARBAROS BULVARI İBA BLOKLARI, 34/A
 İl/İlçe: Beşiktaş/İstanbul
-Tel: 0212 265 16 16"""
+Tel: 0212 265 16 16
+"""
 
 ANKARA_INFO = """KAFFESA GIDA SANAYİ VE DIŞ TİCARET ANONİM ŞİRKETİ
 Adres: TURAN GÜNEŞ BULVARI 55/3
 İl/İlçe: Çankaya / Ankara
-Tel: 0312 476 16 16 / +90 537 472 59 48"""
+Tel: 0312 476 16 16 / +90 537 472 59 48
+"""
 
-SENDER_BLOCK_DEFAULT = ISTANBUL_INFO  # Varsayılan İstanbul
+SENDER_BLOCK_DEFAULT = ISTANBUL_INFO
 
 # --- Font ve Logo Yükleme ---
 FONT_PATH = "DejaVuSans.ttf"
 if os.path.isfile(FONT_PATH):
-    try:
-        pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_PATH))
-        FONT_NAME = "DejaVuSans"
-    except Exception:
-        FONT_NAME = "Helvetica"
-else:
-    FONT_NAME = "Helvetica"
+    try: pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_PATH)); FONT_NAME = "DejaVuSans"
+    except Exception: FONT_NAME = "Helvetica"
+else: FONT_NAME = "Helvetica"
 
 @st.cache_data
 def load_logo_bytes():
     try:
-        with open("logo.png", "rb") as f:
-            return f.read()
-    except FileNotFoundError:
-        return None
+        with open("logo.png", "rb") as f: return f.read()
+    except FileNotFoundError: return None
 
-# -------------------------
-# Yardımcı Fonksiyonlar
-# -------------------------
+# --- Yardımcı Fonksiyonlar ---
 def normalize_pay_token(token: str) -> str | None:
     if not isinstance(token, str): return None
     t = unicodedata.normalize("NFKC", token).strip().lower().replace(" ", "")
@@ -81,69 +73,98 @@ def get_pagesize(name="A4"):
 def open_print_window_with_html(html: str):
     components.html(html, height=0, scrolling=False)
 
-# --- PDF ve HTML Çizim Fonksiyonları ---
-# (Draw, build_single_label_pdf, build_bulk_pdf, make_print_html, make_bulk_print_html)
-# Bu kısımlar önceki kod ile aynı kalabilir; burada kısaltıyoruz ama entegre olacak
+# --- Çizim Fonksiyonları ---
+def draw_label_on_canvas(c: canvas.Canvas, W, H, recipient_name, phone, address, sender_block, pay_short, logo_bytes=None, badge_scale=1.7):
+    margin_x, margin_y = 10*mm, 10*mm; usable_w = W - 2*margin_x
+    scale = max(1.0, min(2.0, float(badge_scale))); c.setFillColorRGB(0.82, 0, 0)
+    badge_w, badge_h = 30*mm*scale, 12*mm*scale
+    c.roundRect(W - margin_x - badge_w, H - margin_y - badge_h, badge_w, badge_h, 3*mm*scale, stroke=0, fill=1)
+    c.setFillColorRGB(1, 1, 1); c.setFont(FONT_NAME, int(26*scale))
+    c.drawCentredString(W - margin_x - badge_w/2, H - margin_y - badge_h/2 - (3*mm*scale), pay_short or "")
+    c.setFillColorRGB(0, 0, 0)
+    top_y = H - margin_y - 4*mm; used_h = 0
+    if logo_bytes:
+        try:
+            img = ImageReader(io.BytesIO(logo_bytes))
+            iw, ih = img.getSize(); target_w = 30 * mm; scale_f = target_w / iw; target_h = ih * scale_f
+            c.drawImage(img, margin_x, top_y - target_h, width=target_w, height=target_h, mask='auto')
+            used_h = target_h
+        except Exception: used_h = 0
+    c.setLineWidth(1.2); c.line(margin_x, H - margin_y - (used_h + 6*mm), margin_x + usable_w, H - margin_y - (used_h + 6*mm))
+    y = H - margin_y - (used_h + 16*mm)
+    c.setFont(FONT_NAME, 15); c.drawString(margin_x, y, "ALICI"); y -= 9*mm
+    c.setFont(FONT_NAME, 28); c.drawString(margin_x, y, f"{recipient_name or ''}"); y -= 10*mm
+    c.setFont(FONT_NAME, 18); approx_chars = int(usable_w / (3.7*mm))
+    for line in textwrap.wrap(address or "", width=max(45, approx_chars)): y -= 8*mm; c.drawString(margin_x, y, line)
+    y -= 8*mm; c.setFont(FONT_NAME, 16); c.drawString(margin_x, y, f"Tel: {phone or ''}")
+    y -= 12*mm; c.setFont(FONT_NAME, 16); c.drawString(margin_x, y, "Gönderici"); y -= 8*mm
+    c.setFont(FONT_NAME, 14)
+    for line in (sender_block or "").split("\n"):
+        if line.strip(): y -= 8*mm; c.drawString(margin_x, y, line)
 
-# ------------------------------------------------
-# UI (Arayüz)
-# ------------------------------------------------
+def build_single_label_pdf(page_size_name, **kwargs):
+    W, H = get_pagesize(page_size_name); buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(W, H)); draw_label_on_canvas(c, W, H, **kwargs)
+    c.showPage(); c.save(); buf.seek(0); return buf.getvalue()
+
+def build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, badge_scale):
+    W, H = get_pagesize(page_size_name); buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(W, H))
+    for r in rows:
+        draw_label_on_canvas(c, W, H, r.get("name"), r.get("phone"), r.get("address"), sender_block, r.get("final_pay", ""), logo_bytes=logo_bytes, badge_scale=badge_scale)
+        c.showPage()
+    c.save(); buf.seek(0); return buf.getvalue()
+
+def make_print_html(recipient_name, phone, address, sender_block, pay_short, page_size_name="A4", logo_b64=None, badge_scale=1.7):
+    if page_size_name == "100x100": page_css = "@page { size: 100mm 100mm; margin: 8mm; }"
+    elif page_size_name == "A4": page_css = "@page { size: A4; margin: 10mm; }"
+    else: page_css = "@page { size: A5; margin: 8mm; }"
+    pill_fs = int(22*badge_scale); pill_pad_v = int(6*badge_scale); pill_pad_h = int(14*badge_scale)
+    logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="height:auto; width:30mm; object-fit:contain; margin-right:8mm;" />' if logo_b64 else ""
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Etiket</title><style>{page_css} body{{font-family:Arial,sans-serif;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}.frame{{border:1px solid #000;padding:8mm;margin:8mm;position:relative;}}.pill{{position:absolute;top:8mm;right:8mm;font-weight:800;font-size:{pill_fs}px;color:#fff;background:#d00;padding:{pill_pad_v}px {pill_pad_h}px;border-radius:10px;}}.head{{display:flex;align-items:center;gap:8mm;margin-bottom:6mm;}}.sec{{font-weight:700;margin-top:6mm;font-size:15px;}}.r-name{{font-size:28px;font-weight:700;margin:4mm 0;}}.r-addr{{font-size:18px;line-height:1.35;white-space:pre-wrap;}}.r-phone{{font-size:16px;margin:2mm 0;}}.s-label{{font-size:16px;margin-top:10mm;font-weight:700;}}.s-body{{font-size:14px;white-space:pre-wrap;line-height:1.45;}}</style></head><body><div class="frame"><div class="pill">{pay_short}</div><div class="head">{logo_html}</div><div class="sec">ALICI</div><div class="r-name">{recipient_name}</div><div class="r-addr">{address}</div><div class="r-phone">Tel: {phone}</div><div class="s-label">Gönderici</div><div class="s-body">{sender_block}</div></div><script>window.onload=function(){{try{{window.focus();setTimeout(function(){{window.print();}},120);}}catch(e){{console.error(e);}}}};</script></body></html>"""
+
+def make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_scale=1.7):
+    pages=[]
+    for r in rows: pages.append(f"""<div class="frame page"><div class="pill">{r.get('final_pay','')}</div><div class="head">{'<img src="data:image/png;base64,'+logo_b64+'" style="height:auto; width:30mm; object-fit:contain; margin-right:8mm;" />' if logo_b64 else ""}</div><div class="sec">ALICI</div><div class="r-name">{r.get('name','')}</div><div class="r-addr">{r.get('address','')}</div><div class="r-phone">Tel: {r.get('phone','')}</div><div class="s-label">Gönderici</div><div class="s-body">{sender_block}</div></div>""")
+    if page_size_name == "100x100": page_css = "@page { size: 100mm 100mm; margin: 8mm; }"
+    elif page_size_name == "A4": page_css = "@page { size: A4; margin: 10mm; }"
+    else: page_css = "@page { size: A5; margin: 8mm; }"
+    pill_fs = int(22*badge_scale); pill_pad_v = int(6*badge_scale); pill_pad_h = int(14*badge_scale)
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Toplu Etiket Yazdır</title><style>{page_css} body{{font-family:Arial,sans-serif;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}.frame{{border:1px solid #000;padding:8mm;margin:8mm;position:relative;}}.pill{{position:absolute;top:8mm;right:8mm;font-weight:800;font-size:{pill_fs}px;color:#fff;background:#d00;padding:{pill_pad_v}px {pill_pad_h}px;border-radius:10px;}}.head{{display:flex;align-items:center;gap:8mm;margin-bottom:6mm;}}.sec{{font-weight:700;margin-top:6mm;font-size:15px;}}.r-name{{font-size:28px;font-weight:700;margin:4mm 0;}}.r-addr{{font-size:18px;line-height:1.35;white-space:pre-wrap;}}.r-phone{{font-size:16px;margin:2mm 0;}}.s-label{{font-size:16px;margin-top:10mm;font-weight:700;}}.s-body{{font-size:14px;white-space:pre-wrap;line-height:1.45;}}.page{{page-break-after:always;}}</style></head><body>{''.join(pages)}<script>window.onload=function(){{try{{window.focus();setTimeout(function(){{window.print();}},120);}}catch(e){{console.error(e);}}}};</script></body></html>"""
+
+# --- UI ---
 st.title("📦 Kargo Etiket Oluşturucu")
 
-# -------------------------
-# Gönderici Seçimi ve Manuel Düzenleme
-# -------------------------
-with st.expander("🔧 Gönderici Bilgileri", expanded=True):
-    st.subheader("Gönderici Seçiniz")
-    col1, col2 = st.columns(2)
-
-    # session_state key'leri ilk kullanımda oluştur
-    if 'gonderici' not in st.session_state:
-        st.session_state['gonderici'] = SENDER_BLOCK_DEFAULT
-    if 'manuel_gonderici' not in st.session_state:
-        st.session_state['manuel_gonderici'] = SENDER_BLOCK_DEFAULT
-
-    # Butonlar
-    if col1.button("İstanbul Showroom"):
-        st.session_state['gonderici'] = ISTANBUL_INFO
-        st.session_state['manuel_gonderici'] = ISTANBUL_INFO
-    if col2.button("Ankara Showroom"):
-        st.session_state['gonderici'] = ANKARA_INFO
-        st.session_state['manuel_gonderici'] = ANKARA_INFO
-
-    # Manuel değişiklik alanı
-    manuel_gonderici = st.text_area(
-        "Gönderici bilgisini manuel değiştirmek istersen buraya yaz:",
-        value=st.session_state['manuel_gonderici'],
-        height=140
-    )
-
-# PDF/HTML oluşturma kısmında kesin olarak bunu kullan
-sender_block = manuel_gonderici
-
-# -------------------------
-# Excel Verisi Alanı
-# -------------------------
 with st.sidebar:
     st.subheader("Excel Verisi")
-    st.info("Excel'de satırın tamamını seçip (örn: satır numarasına tıklayarak) kopyalayın ve buraya yapıştırın.")
+    st.info("Excel'de satırın tamamını seçip kopyalayın ve buraya yapıştırın.")
     raw_input_data = st.text_area("Yapıştırılacak Alan:", height=350, key="raw_data_input")
 
-# -------------------------
-# Tasarım Ayarları
-# -------------------------
-with st.expander("🔧 Tasarım Ayarları", expanded=True):
+with st.expander("🔧 Tasarım & Gönderici Bilgileri", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
         page_size_name = st.selectbox("Etiket Boyutu", ["A4", "A5", "100x100"], index=0)
     with col2:
         badge_scale = st.slider("Ücret Rozeti Boyutu", 1.0, 2.0, 1.7, 0.1)
 
-sender_block = manuel_gonderici  # Son seçilen veya manuel gönderici
+    # --- Şube seçimi ve manuel gönderici ---
+    st.subheader("Gönderici Seçimi")
+    gonderici_secimi = st.radio("Şube Seçimi:", ["İstanbul Showroom", "Ankara Showroom"], index=0)
+    if gonderici_secimi == "İstanbul Showroom":
+        st.session_state['manuel_gonderici'] = ISTANBUL_INFO
+    else:
+        st.session_state['manuel_gonderici'] = ANKARA_INFO
 
-# -------------------------
-# Veri Okuma ve İşleme
-# -------------------------
+    manuel_gonderici = st.text_area(
+        "Gönderici bilgisini manuel değiştirmek istersen buraya yaz:",
+        value=st.session_state.get('manuel_gonderici', SENDER_BLOCK_DEFAULT),
+        height=140
+    )
+    sender_block = manuel_gonderici
+
+# =========================================================================================
+# Excel veri okuma
+# =========================================================================================
 rows = []
 error_lines = 0
 if raw_input_data:
@@ -151,9 +172,7 @@ if raw_input_data:
         df = pd.read_csv(io.StringIO(raw_input_data), sep='\t', header=None, engine='python', on_bad_lines='skip')
         df.dropna(how='all', inplace=True)
         for index, row in df.iterrows():
-            if len(row) < MIN_COLUMN_COUNT:
-                error_lines += 1
-                continue
+            if len(row) < MIN_COLUMN_COUNT: error_lines += 1; continue
             name_cell = str(row[COL_NAME]) if pd.notna(row[COL_NAME]) else ""
             if name_cell.strip():
                 rows.append({
@@ -165,10 +184,43 @@ if raw_input_data:
             else:
                 error_lines += 1
     except Exception as e:
-        st.error(f"Veri işlenirken bir hata oluştu: {e}")
-        st.warning("Lütfen veriyi Excel'den tüm satırı seçerek kopyaladığınızdan emin olun.")
+        st.error(f"Veri işlenirken hata: {e}")
 
-# -------------------------
-# Sonuçların Gösterilmesi ve PDF/HTML İşlemleri
-# -------------------------
-# (Bu kısım önceki kod ile aynı, rows üzerinden döngü ile tekil ve toplu PDF oluşturma, download ve print butonları)
+# --- Sonuç ---
+if not rows and not error_lines and raw_input_data:
+    st.warning("Geçerli alıcı bilgisi bulunamadı.")
+elif not rows:
+    st.info("Excel verisini yapıştırın.")
+else:
+    st.success(f"{len(rows)} adet alıcı işlendi.")
+    if error_lines > 0: st.warning(f"{error_lines} satır atlandı.")
+
+    logo_bytes = load_logo_bytes()
+    logo_b64 = base64.b64encode(logo_bytes).decode("ascii") if logo_bytes else None
+
+    for i, r in enumerate(rows, start=1):
+        with st.container():
+            st.markdown("---"); st.markdown(f"**#{i} – {r.get('name')}**")
+            st.markdown(f"**Adres:** {r.get('address', 'N/A')}"); st.markdown(f"**Telefon:** {r.get('phone', 'N/A')}")
+            default_index = 1 if r.get("parsed_pay") == "ÜG" else 0
+            pay_opt = st.radio("Kargo Ödemesi", ["ÜA (Ücret Alıcı)", "ÜG (Ücret Gönderici)"], index=default_index, horizontal=True, key=f"pay_{i}")
+            rows[i-1]["final_pay"] = "ÜA" if "ÜA" in pay_opt else "ÜG"
+            col1, col2 = st.columns(2)
+            with col1:
+                pdf_bytes = build_single_label_pdf(page_size_name,
+                    recipient_name=r.get("name"),
+                    phone=r.get("phone"),
+                    address=r.get("address"),
+                    sender_block=sender_block,
+                    pay_short=rows[i-1]["final_pay"],
+                    logo_bytes=logo_bytes,
+                    badge_scale=badge_scale
+                )
+                st.download_button(label="📄 PDF İndir", data=pdf_bytes, file_name=f"etiket_{sanitize_filename(r.get('name'))}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_{i}")
+            with col2:
+                if st.button("🖨️ Yazdır", key=f"print_{i}", use_container_width=True):
+                    html_content = make_print_html(r.get("name"), r.get("phone"), r.get("address"), sender_block, rows[i-1]["final_pay"], page_size_name, logo_b64=logo_b64, badge_scale=badge_scale)
+                    open_print_window_with_html(html_content)
+
+    if len(rows) > 1:
+        st.markdown("---");

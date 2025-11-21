@@ -96,22 +96,30 @@ st.title("📦 Kargo Etiket Oluşturucu")
 with st.expander("🔧 Gönderici Bilgileri", expanded=True):
     st.subheader("Gönderici Seçiniz")
     col1, col2 = st.columns(2)
+
+    # session_state key'leri ilk kullanımda oluştur
     if 'gonderici' not in st.session_state:
         st.session_state['gonderici'] = SENDER_BLOCK_DEFAULT
+    if 'manuel_gonderici' not in st.session_state:
+        st.session_state['manuel_gonderici'] = SENDER_BLOCK_DEFAULT
 
-    with col1:
-        if st.button("İstanbul Showroom"):
-            st.session_state['gonderici'] = ISTANBUL_INFO
-    with col2:
-        if st.button("Ankara Showroom"):
-            st.session_state['gonderici'] = ANKARA_INFO
+    # Butonlar
+    if col1.button("İstanbul Showroom"):
+        st.session_state['gonderici'] = ISTANBUL_INFO
+        st.session_state['manuel_gonderici'] = ISTANBUL_INFO
+    if col2.button("Ankara Showroom"):
+        st.session_state['gonderici'] = ANKARA_INFO
+        st.session_state['manuel_gonderici'] = ANKARA_INFO
 
     # Manuel değişiklik alanı
     manuel_gonderici = st.text_area(
         "Gönderici bilgisini manuel değiştirmek istersen buraya yaz:",
-        value=st.session_state['gonderici'],
+        value=st.session_state['manuel_gonderici'],
         height=140
     )
+
+# PDF/HTML oluşturma kısmında kesin olarak bunu kullan
+sender_block = manuel_gonderici
 
 # -------------------------
 # Excel Verisi Alanı

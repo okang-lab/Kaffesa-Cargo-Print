@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="data:,">
+<title>Kaffesa Personel</title>
+<style>
+  :root{
+    --bg:#f6f6f5; --surface:#fff; --ink:#111; --ink-2:#555; --ink-3:#8a8a8a;
+    --line:#e4e4e2; --line-2:#d2d2cf; --focus:#111; --pay:#d00;
+    --ok-bg:#eef6ee; --ok:#1d5b26; --warn-bg:#fbf4e6; --warn:#7a4b00; --info-bg:#f0f0ef;
+    --r:10px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  button,input,select,textarea{font:inherit;color:inherit}
+  a{color:inherit}
+  .topbar{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.92);backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--line)}
+  .topbar-in{max-width:1280px;margin:0 auto;padding:12px 24px;display:flex;align-items:center;gap:16px}
+  .brand{display:flex;align-items:center;gap:14px;text-decoration:none}
+  .brand img{height:22px;display:block}
+  .brand span{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);border-left:1px solid var(--line-2);padding-left:14px}
+  .spacer{flex:1}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--line-2);background:var(--surface);border-radius:999px;padding:8px 16px;cursor:pointer;font-size:14px;text-decoration:none;white-space:nowrap;transition:background .15s,border-color .15s}
+  .btn:hover{border-color:var(--ink)}
+  .btn:focus-visible,.seg button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+  .btn-dark{background:var(--ink);border-color:var(--ink);color:#fff}
+  .btn-dark:hover{background:#333}
+  .btn-ghost{border-color:transparent;background:transparent;padding:8px 10px;color:var(--ink-2)}
+  .btn-ghost:hover{color:var(--ink);border-color:transparent}
+  .btn[disabled]{opacity:.5;cursor:default}
+  main{max-width:1280px;margin:0 auto;padding:32px 24px 80px}
+  h1{font-size:28px;font-weight:600;letter-spacing:-.01em;margin:0 0 6px}
+  .lead{color:var(--ink-2);margin:0 0 28px}
+
+  /* Araç menüsü */
+  .tools{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+  .tool{display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;text-decoration:none;transition:border-color .15s,transform .15s}
+  .tool:hover{border-color:var(--ink);transform:translateY(-1px)}
+  .tool-ico{width:40px;height:40px;border-radius:10px;background:var(--ink);color:#fff;display:grid;place-items:center}
+  .tool h2{font-size:17px;font-weight:600;margin:6px 0 0}
+  .tool p{margin:0;color:var(--ink-2);font-size:14px}
+  .tool .go{margin-top:auto;padding-top:8px;font-size:13px;color:var(--ink-3)}
+
+  /* Kargo */
+  .kargo{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:24px;align-items:start}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .panel+.panel{margin-top:16px}
+  .panel h3{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600;margin:0 0 12px}
+  .side{position:sticky;top:76px}
+  .hint{font-size:13px;color:var(--ink-2);background:var(--info-bg);border-radius:8px;padding:10px 12px;margin:0 0 12px}
+  .cols{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+  .cols span{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:2px 9px;color:var(--ink-2)}
+  .cols b{color:var(--ink)}
+  textarea{width:100%;border:1px solid var(--line-2);border-radius:var(--r);padding:12px;background:#fff;resize:vertical}
+  #raw{height:340px;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre;overflow:auto}
+  #sender{height:130px;font-size:13px}
+  .row-actions{display:flex;justify-content:flex-end;margin-top:8px}
+  .field{margin-bottom:18px}
+  .field:last-child{margin-bottom:0}
+  .label{display:flex;justify-content:space-between;font-size:14px;font-weight:500;margin-bottom:8px}
+  .label output{font-variant-numeric:tabular-nums;color:var(--ink-2);font-weight:400}
+  .seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--line-2);border-radius:999px;padding:3px;gap:2px;background:#fff}
+  .seg button{border:0;background:transparent;border-radius:999px;padding:6px 14px;cursor:pointer;font-size:14px;color:var(--ink-2)}
+  .seg button[aria-pressed="true"]{background:var(--ink);color:#fff}
+  input[type=range]{width:100%;accent-color:var(--ink)}
+  .settings{display:grid;grid-template-columns:1fr 1fr;gap:20px 28px}
+  .settings .wide{grid-column:1/-1}
+  .msgs{display:flex;flex-direction:column;gap:8px;margin:20px 0}
+  .msg{border-radius:var(--r);padding:12px 14px;font-size:14px}
+  .msg.ok{background:var(--ok-bg);color:var(--ok)}
+  .msg.warn{background:var(--warn-bg);color:var(--warn)}
+  .msg.info{background:var(--info-bg);color:var(--ink-2)}
+  .bulk{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--ink);color:#fff;border-radius:14px;padding:14px 16px 14px 20px;margin-bottom:16px}
+  .bulk strong{font-weight:600}
+  .bulk .spacer{flex:1}
+  .bulk .btn{background:#fff;border-color:#fff;color:var(--ink)}
+  .bulk .btn.outline{background:transparent;color:#fff;border-color:rgba(255,255,255,.5)}
+  .bulk .btn.outline:hover{border-color:#fff}
+  .list{display:flex;flex-direction:column;gap:12px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;display:grid;grid-template-columns:1fr auto;gap:12px 20px}
+  .card-head{display:flex;align-items:baseline;gap:10px;min-width:0}
+  .card-no{font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+  .card-name{font-size:17px;font-weight:600;overflow-wrap:anywhere}
+  .card-meta{grid-column:1/2;font-size:14px;color:var(--ink-2);display:grid;grid-template-columns:auto 1fr;gap:2px 10px}
+  .card-meta dt{color:var(--ink-3)}
+  .card-meta dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+  .card-side{grid-column:2/3;grid-row:1/3;display:flex;flex-direction:column;align-items:flex-end;gap:12px}
+  .pill{display:inline-block;background:var(--pay);color:#fff;font-weight:700;border-radius:8px;padding:2px 10px;font-size:14px;min-width:46px;text-align:center}
+  .card-actions{display:flex;gap:8px}
+  .empty{text-align:center;color:var(--ink-3);padding:48px 16px;border:1px dashed var(--line-2);border-radius:14px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:999px;padding:10px 18px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.show{opacity:1}
+  @media (max-width:900px){
+    .kargo{grid-template-columns:1fr}
+    .side{position:static}
+    .settings{grid-template-columns:1fr}
+  }
+  @media (max-width:560px){
+    .topbar-in,main{padding-left:16px;padding-right:16px}
+    .brand span{display:none}
+    .card{grid-template-columns:1fr}
+    .card-side{grid-column:1;grid-row:auto;align-items:stretch}
+    .card-side .seg{justify-content:center}
+    .card-actions .btn{flex:1}
+  }
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="#/"><img src="data:image/png;base64,{{LOGO_UI}}" alt="kaffesa"><span>Personel</span></a>
+    <div class="spacer"></div>
+    <a class="btn btn-ghost" id="backBtn" href="#/" hidden>← Araçlar</a>
+    <button class="btn" id="logoutBtn" type="button">Çıkış</button>
+  </div>
+</header>
+
+<!-- ============ ARAÇLAR ============ -->
+<main id="view-home" hidden>
+  <h1>Araçlar</h1>
+  <p class="lead">Kullanmak istediğiniz programı seçin.</p>
+  <div class="tools">
+    <a class="tool" href="#/kargo">
+      <div class="tool-ico" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>
+      </div>
+      <h2>Kargo Etiket Programı</h2>
+      <p>Excel'den yapıştırılan siparişlerden ÜA / ÜG kargo etiketi oluşturun, PDF indirin veya yazdırın.</p>
+      <span class="go">Aç →</span>
+    </a>
+  </div>
+</main>
+
+<!-- ============ KARGO ============ -->
+<main id="view-kargo" hidden>
+  <h1>Kargo Etiket Oluşturucu</h1>
+  <p class="lead">Excel'de satırların tamamını seçip kopyalayın, aşağıdaki alana yapıştırın.</p>
+  <div class="kargo">
+    <aside class="side">
+      <section class="panel">
+        <h3>Excel Verisi</h3>
+        <p class="hint">Excel'de satırın tamamını seçip kopyalayın ve buraya yapıştırın.</p>
+        <div class="cols"><span><b>I</b> Alıcı</span><span><b>Q</b> Adres</span><span><b>R</b> Telefon</span><span><b>S</b> ÜA / ÜG</span></div>
+        <textarea id="raw" spellcheck="false" placeholder="Yapıştırılacak alan…" aria-label="Yapıştırılacak alan"></textarea>
+        <div class="row-actions"><button class="btn btn-ghost" id="clearBtn" type="button">Temizle</button></div>
+      </section>
+    </aside>
+
+    <div>
+      <section class="panel">
+        <h3>Tasarım &amp; Gönderici Bilgileri</h3>
+        <div class="settings">
+          <div class="field">
+            <div class="label">Etiket Boyutu</div>
+            <div class="seg" id="sizeSeg" role="group" aria-label="Etiket boyutu">
+              <button type="button" data-v="A4">A4</button><button type="button" data-v="A5">A5</button><button type="button" data-v="100x100">100×100</button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="label" for="scale">Ücret Rozeti Boyutu <output id="scaleOut">1.7</output></label>
+            <input type="range" id="scale" min="1" max="2" step="0.1" value="1.7">
+          </div>
+          <div class="field wide">
+            <div class="label">Gönderici Seçimi</div>
+            <div class="seg" id="branchSeg" role="group" aria-label="Şube seçimi">
+              <button type="button" data-v="ist">İstanbul Showroom</button><button type="button" data-v="ank">Ankara Showroom</button>
+            </div>
+          </div>
+          <div class="field wide">
+            <label class="label" for="sender">Gönderici bilgisini manuel değiştirmek istersen buraya yaz:</label>
+            <textarea id="sender" spellcheck="false"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <div class="msgs" id="msgs"></div>
+
+      <div class="bulk" id="bulk" hidden>
+        <strong id="bulkCount"></strong><span>Toplu İşlemler</span>
+        <div class="spacer"></div>
+        <button class="btn" id="bulkPdf" type="button">📦 Toplu PDF İndir</button>
+        <button class="btn outline" id="bulkPrint" type="button">🖨️ Toplu Yazdır</button>
+      </div>
+
+      <div class="list" id="list"></div>
+    </div>
+  </div>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>{{JSPDF}}</script>
+<script>{{CORE_JS}}</script>
+<script>window.KARGO_ASSETS = {{ASSETS_JSON}};</script>
+<script>
+(function () {
+  "use strict";
+  const K = window.KargoCore, A = window.KARGO_ASSETS;
+  const $ = (id) => document.getElementById(id);
+  const SESSION_KEY = "kaffesa-app-key";
+
+  // ---- küçük kalıcı tercihler (bu tarayıcıda) ----
+  const pref = {
+    get(k, d) { try { const v = localStorage.getItem("kaffesa-kargo-" + k); return v == null ? d : v; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem("kaffesa-kargo-" + k, v); } catch (e) {} },
+  };
+
+  // ---- yönlendirme ----
+  function route() {
+    const kargo = location.hash.startsWith("#/kargo");
+    $("view-home").hidden = kargo;
+    $("view-kargo").hidden = !kargo;
+    $("backBtn").hidden = !kargo;
+    document.title = kargo ? "Kargo Etiket Oluşturucu · Kaffesa" : "Kaffesa Personel";
+    window.scrollTo(0, 0);
+  }
+  window.addEventListener("hashchange", route);
+
+  $("logoutBtn").addEventListener("click", () => {
+    try { sessionStorage.removeItem(SESSION_KEY); localStorage.removeItem(SESSION_KEY); } catch (e) {}
+    location.hash = "";
+    location.reload();
+  });
+
+  // ---- durum ----
+  const state = {
+    size: pref.get("size", "A4"),
+    scale: parseFloat(pref.get("scale", "1.7")),
+    branch: pref.get("branch", "ist"),
+    rows: [],
+    errorLines: 0,
+    raw: "",
+  };
+  const senderFor = (b) => (b === "ank" ? K.ANKARA_INFO : K.ISTANBUL_INFO);
+
+  function setSeg(seg, value) {
+    seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === value)));
+  }
+
+  // ---- ayarlar ----
+  setSeg($("sizeSeg"), state.size);
+  $("sizeSeg").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    state.size = b.dataset.v; pref.set("size", state.size); setSeg($("sizeSeg"), state.size);
+  });
+
+  $("scale").value = String(state.scale);
+  $("scaleOut").textContent = state.scale.toFixed(1);
+  $("scale").addEventListener("input", (e) => {
+    state.scale = parseFloat(e.target.value); $("scaleOut").textContent = state.scale.toFixed(1); pref.set("scale", String(state.scale));
+  });
+
+  setSeg($("branchSeg"), state.branch);
+  $("sender").value = senderFor(state.branch);
+  $("branchSeg").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    state.branch = b.dataset.v; pref.set("branch", state.branch); setSeg($("branchSeg"), state.branch);
+    $("sender").value = senderFor(state.branch);
+  });
+  const sender = () => $("sender").value;
+
+  // ---- veri ----
+  let t = null;
+  $("raw").addEventListener("input", () => { clearTimeout(t); t = setTimeout(parse, 120); });
+  $("clearBtn").addEventListener("click", () => { $("raw").value = ""; parse(); $("raw").focus(); });
+
+  function parse() {
+    const raw = $("raw").value;
+    if (raw === state.raw) return;
+    state.raw = raw;
+    const res = K.parseRecipients(raw);
+    state.rows = res.rows.map((r) => ({ ...r, finalPay: r.parsedPay === "ÜG" ? "ÜG" : "ÜA" }));
+    state.errorLines = res.errorLines;
+    render();
+  }
+
+  function msg(cls, text) { const d = document.createElement("div"); d.className = "msg " + cls; d.textContent = text; return d; }
+
+  function render() {
+    const msgs = $("msgs"), list = $("list");
+    msgs.replaceChildren(); list.replaceChildren();
+    const n = state.rows.length;
+    if (!n) {
+      if (state.raw.trim()) {
+        msgs.append(msg("warn", "Geçerli alıcı bilgisi bulunamadı." + (state.errorLines ? ` ${state.errorLines} satır atlandı.` : "")));
+      } else {
+        const e = document.createElement("div"); e.className = "empty"; e.textContent = "Excel verisini yapıştırın."; list.append(e);
+      }
+      $("bulk").hidden = true;
+      return;
+    }
+    msgs.append(msg("ok", `${n} adet alıcı işlendi.`));
+    if (state.errorLines > 0) msgs.append(msg("warn", `${state.errorLines} satır atlandı.`));
+    $("bulk").hidden = n < 2;
+    $("bulkCount").textContent = `${n} etiket`;
+
+    state.rows.forEach((r, i) => {
+      const card = document.createElement("article");
+      card.className = "card";
+      card.innerHTML =
+        `<div class="card-head"><span class="card-no">#${i + 1}</span><span class="card-name"></span></div>` +
+        `<dl class="card-meta"><dt>Adres</dt><dd class="a"></dd><dt>Telefon</dt><dd class="p"></dd></dl>` +
+        `<div class="card-side">` +
+        `<div class="seg" role="group" aria-label="Kargo ödemesi"><button type="button" data-v="ÜA" title="Ücret Alıcı">ÜA (Ücret Alıcı)</button><button type="button" data-v="ÜG" title="Ücret Gönderici">ÜG (Ücret Gönderici)</button></div>` +
+        `<div class="card-actions"><button class="btn btn-dark" data-act="pdf" type="button">📄 PDF İndir</button><button class="btn" data-act="print" type="button">🖨️ Yazdır</button></div>` +
+        `</div>`;
+      card.querySelector(".card-name").textContent = r.name;
+      card.querySelector(".a").textContent = r.address || "—";
+      card.querySelector(".p").textContent = r.phone || "—";
+      const seg = card.querySelector(".seg");
+      setSeg(seg, r.finalPay);
+      seg.addEventListener("click", (e) => {
+        const b = e.target.closest("button"); if (!b) return;
+        r.finalPay = b.dataset.v; setSeg(seg, r.finalPay);
+      });
+      card.querySelector('[data-act="pdf"]').addEventListener("click", () => singlePdf(r));
+      card.querySelector('[data-act="print"]').addEventListener("click", () => printLabels([r]));
+      list.append(card);
+    });
+  }
+
+  // ---- çıktı ----
+  function toast(text) {
+    const el = $("toast"); el.textContent = text; el.classList.add("show");
+    clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove("show"), 2200);
+  }
+
+  function singlePdf(r) {
+    try {
+      const doc = K.buildSinglePdf(state.size, { name: r.name, phone: r.phone, address: r.address, sender: sender(), pay: r.finalPay, badgeScale: state.scale }, A);
+      doc.save(`etiket_${K.sanitizeFilename(r.name)}.pdf`);
+    } catch (e) { console.error(e); toast("PDF oluşturulamadı."); }
+  }
+
+  $("bulkPdf").addEventListener("click", () => {
+    try {
+      const doc = K.buildBulkPdf(state.size, state.rows, sender(), state.scale, A);
+      doc.save("etiketler_toplu.pdf");
+    } catch (e) { console.error(e); toast("PDF oluşturulamadı."); }
+  });
+  $("bulkPrint").addEventListener("click", () => printLabels(state.rows));
+
+  // Yazdırma: görünmez bir çerçevede etiket sayfasını açıp tarayıcının yazdır penceresini çağırır.
+  function printLabels(rows) {
+    const html = K.makePrintHtml(
+      state.size,
+      rows.map((r) => ({ name: r.name, phone: r.phone, address: r.address, pay: r.finalPay })),
+      sender(), state.scale, A.logoBase64
+    );
+    const old = document.getElementById("printFrame"); if (old) old.remove();
+    const f = document.createElement("iframe");
+    f.id = "printFrame";
+    f.setAttribute("aria-hidden", "true");
+    f.style.cssText = "position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0";
+    f.onload = () => {
+      setTimeout(() => {
+        try { f.contentWindow.focus(); f.contentWindow.print(); }
+        catch (e) { console.error(e); toast("Yazdırma açılamadı, PDF İndir'i kullanın."); }
+      }, 150);
+    };
+    f.srcdoc = html;
+    document.body.append(f);
+  }
+
+  route();
+  render();
+})();
+</script>
+</body>
+</html>

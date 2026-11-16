@@ -223,4 +223,12 @@ else:
                     open_print_window_with_html(html_content)
 
     if len(rows) > 1:
-        st.markdown("---");
+        st.markdown("---"); st.subheader("Toplu İşlemler")
+        t_col1, t_col2 = st.columns(2)
+        with t_col1:
+            bulk_pdf_bytes = build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, badge_scale)
+            st.download_button(label="📦 Toplu PDF İndir", data=bulk_pdf_bytes, file_name="etiketler_toplu.pdf", mime="application/pdf", use_container_width=True)
+        with t_col2:
+            if st.button("🖨️ Toplu Yazdır", use_container_width=True):
+                bulk_html_content = make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_scale)
+                open_print_window_with_html(bulk_html_content)

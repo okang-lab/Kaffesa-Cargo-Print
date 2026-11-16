@@ -38,6 +38,7 @@ node build.mjs            # şifreyi sorar (en az 8 karakter)
 ## Python sürümünden farklar
 
 - Etiket PDF'i ve yazdırma tasarımı aynıdır (ReportLab çıktısıyla piksel karşılaştırması yapıldı).
-- Excel okuma aynıdır. Tek fark: sadece rakamdan oluşan telefonlarda (`05551112233`) baştaki **0 artık silinmez**.
+- Excel sütunları (Kasım 2026 düzeni): **J** Alıcı · **R** Adres · **S** Telefon · **T** ÜA/ÜG. `src/kargo-core.js` başındaki `COL_*` sabitleri.
+- Telefon: 10 haneli ve 0 / +90 ile başlamayan numaraların başına 0 eklenir (`(542) 647 99 33` → `0 (542) 647 99 33`).
 - Etiket boyutu, rozet boyutu ve şube seçimi o tarayıcıda hatırlanır.
 - Yazdırma, gizli bir çerçeve üzerinden tarayıcının yazdır penceresini açar. Açılmazsa "PDF İndir" kullanılabilir.

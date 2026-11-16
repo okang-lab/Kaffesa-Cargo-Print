@@ -11,12 +11,12 @@
 
   const MM = 72 / 25.4;
 
-  // Excel sütunları (0 tabanlı): I, Q, R, S
-  const COL_NAME = 8;
-  const COL_ADDRESS = 16;
-  const COL_PHONE = 17;
-  const COL_PAYMENT = 18;
-  const MIN_COLUMN_COUNT = 19;
+  // Excel sütunları (0 tabanlı) — Kasım 2026 düzeni: J=Alıcı, R=Adres, S=Telefon, T=ÜA/ÜG
+  const COL_NAME = 9;
+  const COL_ADDRESS = 17;
+  const COL_PHONE = 18;
+  const COL_PAYMENT = 19;
+  const MIN_COLUMN_COUNT = 20;
 
   const ISTANBUL_INFO =
     "KAFFESA GIDA SANAYİ VE DIŞ TİCARET ANONİM ŞİRKETİ\n" +
@@ -39,6 +39,13 @@
     if (t === "üa" || t === "ua") return "ÜA";
     if (t === "üg" || t === "ug") return "ÜG";
     return null;
+  }
+
+  // 10 haneli ve 0 / +90 ile başlamayan numaraların başına 0 ekler: (542) 647 99 33 -> 0 (542) 647 99 33
+  function normalizePhone(phone) {
+    const s = String(phone || "").trim();
+    if (s.replace(/\D/g, "").length === 10 && !/^[0+]/.test(s)) return "0 " + s;
+    return s;
   }
 
   function sanitizeFilename(s) {
@@ -95,7 +102,7 @@
       result.rows.push({
         name: name,
         address: (cells[COL_ADDRESS] || "").trim(),
-        phone: (cells[COL_PHONE] || "").trim(),
+        phone: normalizePhone(cells[COL_PHONE]),
         parsedPay: normalizePayToken(cells[COL_PAYMENT] || ""),
       });
     }
@@ -288,7 +295,7 @@
   return {
     MM, COL_NAME, COL_ADDRESS, COL_PHONE, COL_PAYMENT, MIN_COLUMN_COUNT,
     ISTANBUL_INFO, ANKARA_INFO,
-    normalizePayToken, sanitizeFilename, pageSize, parseTSV, parseRecipients, wrap,
+    normalizePayToken, normalizePhone, sanitizeFilename, pageSize, parseTSV, parseRecipients, wrap,
     buildSinglePdf, buildBulkPdf, makePrintHtml,
   };
 });

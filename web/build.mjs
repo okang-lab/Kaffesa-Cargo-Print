@@ -2,7 +2,7 @@
 // Kaffesa Personel (/app/) derleme betiği
 //
 // Kullanım:
-//   node build.mjs                      -> şifreyi sorar
+//   node build.mjs                      -> şifreyi sorar (en az 4 karakter; sadece rakamsa telefonda rakam klavyesi açılır)
 //   APP_PASSWORD='...' node build.mjs   -> şifreyi ortam değişkeninden alır
 //
 // Çıktı: dist/app/index.html  (kaffesa.com sitesinin kökündeki app/ klasörüne kopyalanır)
@@ -51,8 +51,8 @@ async function encrypt(plaintext, password) {
 }
 
 const password = await askPassword();
-if (!password || password.length < 8) {
-  console.error("Şifre en az 8 karakter olmalı.");
+if (!password || password.length < 4) {
+  console.error("Şifre en az 4 karakter olmalı.");
   process.exit(1);
 }
 
@@ -74,7 +74,9 @@ const app = fill(r("src/app.html", "utf8"), {
 });
 
 const payload = await encrypt(app, password);
-const out = fill(r("src/lock.html", "utf8"), { LOGO_UI: logoUi, PAYLOAD: JSON.stringify(payload) });
+// Şifre sadece rakamsa telefonda rakam klavyesi açılsın
+const inputMode = /^\d+$/.test(password) ? "numeric" : "text";
+const out = fill(r("src/lock.html", "utf8"), { LOGO_UI: logoUi, PAYLOAD: JSON.stringify(payload), INPUTMODE: inputMode });
 
 mkdirSync(join(ROOT, "dist/app"), { recursive: true });
 writeFileSync(join(ROOT, "dist/app/index.html"), out);

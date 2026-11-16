@@ -24,7 +24,7 @@ web/
 
 ```bash
 cd web
-node build.mjs            # şifreyi sorar (en az 8 karakter)
+node build.mjs            # şifreyi sorar (en az 4 karakter)
 ```
 
 Çıktı: `web/dist/app/index.html`. Şifre her değiştiğinde bu komut yeniden çalıştırılır ve yeni dosya siteye yüklenir. Eski şifre o anda geçersiz olur.

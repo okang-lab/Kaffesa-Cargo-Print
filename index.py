@@ -19,11 +19,12 @@ from reportlab.lib.utils import ImageReader
 st.set_page_config(page_title="Kargo Etiket Oluşturucu", layout="wide")
 
 # Excel sütunları
-COL_NAME = 8
-COL_ADDRESS = 16
-COL_PHONE = 17
-COL_PAYMENT = 18
-MIN_COLUMN_COUNT = 19
+# (Kasım 2026 Excel düzeni: J=Alıcı, R=Adres, S=Telefon, T=ÜA/ÜG; 0 tabanlı indeks)
+COL_NAME = 9       # J
+COL_ADDRESS = 17   # R
+COL_PHONE = 18     # S
+COL_PAYMENT = 19   # T
+MIN_COLUMN_COUNT = 20
 
 # Gönderici bilgileri
 ISTANBUL_INFO = """KAFFESA GIDA SANAYİ VE DIŞ TİCARET ANONİM ŞİRKETİ
@@ -60,6 +61,13 @@ def normalize_pay_token(token: str) -> str | None:
     if t in ("üa", "ua"): return "ÜA"
     if t in ("üg", "ug"): return "ÜG"
     return None
+
+def normalize_phone(phone: str) -> str:
+    """10 haneli ve 0 / +90 ile başlamayan numaraların başına 0 ekler: (542) 647 99 33 -> 0 (542) 647 99 33"""
+    s = (phone or "").strip()
+    if len(re.sub(r"\D", "", s)) == 10 and not s.startswith(("0", "+")):
+        return "0 " + s
+    return s
 
 def sanitize_filename(s: str) -> str:
     s = re.sub(r'[^\w\s-]', '', s, flags=re.UNICODE).strip()
@@ -137,7 +145,7 @@ st.title("📦 Kargo Etiket Oluşturucu")
 
 with st.sidebar:
     st.subheader("Excel Verisi")
-    st.info("Excel'de satırın tamamını seçip kopyalayın ve buraya yapıştırın.")
+    st.info("Excel'de satırın tamamını seçip kopyalayın ve buraya yapıştırın. (J: Alıcı · R: Adres · S: Telefon · T: ÜA/ÜG)")
     raw_input_data = st.text_area("Yapıştırılacak Alan:", height=350, key="raw_data_input")
 
 with st.expander("🔧 Tasarım & Gönderici Bilgileri", expanded=True):
@@ -169,7 +177,7 @@ rows = []
 error_lines = 0
 if raw_input_data:
     try:
-        df = pd.read_csv(io.StringIO(raw_input_data), sep='\t', header=None, engine='python', on_bad_lines='skip')
+        df = pd.read_csv(io.StringIO(raw_input_data), sep='\t', header=None, engine='python', on_bad_lines='skip', dtype=str)
         df.dropna(how='all', inplace=True)
         for index, row in df.iterrows():
             if len(row) < MIN_COLUMN_COUNT: error_lines += 1; continue
@@ -178,7 +186,7 @@ if raw_input_data:
                 rows.append({
                     "name": name_cell.strip(),
                     "address": str(row[COL_ADDRESS]) if pd.notna(row[COL_ADDRESS]) else "",
-                    "phone": str(row[COL_PHONE]) if pd.notna(row[COL_PHONE]) else "",
+                    "phone": normalize_phone(str(row[COL_PHONE])) if pd.notna(row[COL_PHONE]) else "",
                     "parsed_pay": normalize_pay_token(str(row[COL_PAYMENT]) if pd.notna(row[COL_PAYMENT]) else ""),
                 })
             else:
@@ -223,4 +231,12 @@ else:
                     open_print_window_with_html(html_content)
 
     if len(rows) > 1:
-        st.markdown("---");
+        st.markdown("---"); st.subheader("Toplu İşlemler")
+        t_col1, t_col2 = st.columns(2)
+        with t_col1:
+            bulk_pdf_bytes = build_bulk_pdf(page_size_name, rows, sender_block, logo_bytes, badge_scale)
+            st.download_button(label="📦 Toplu PDF İndir", data=bulk_pdf_bytes, file_name="etiketler_toplu.pdf", mime="application/pdf", use_container_width=True)
+        with t_col2:
+            if st.button("🖨️ Toplu Yazdır", use_container_width=True):
+                bulk_html_content = make_bulk_print_html(page_size_name, rows, sender_block, logo_b64, badge_scale)
+                open_print_window_with_html(bulk_html_content)
